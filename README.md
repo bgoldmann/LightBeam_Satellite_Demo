@@ -30,9 +30,13 @@ cargo run -p test-vector-generator
 ```bash
 cd apps/web-encoder
 npm install
-npm run dev      # https://localhost:5173
+cp .env.example .env.local   # optional Supabase catalog
+npm run dev      # http://localhost:5173
 npm run build    # static dist/
 ```
+
+**Live:** https://lightbeam-web-encoder.vercel.app  
+**Supabase:** project `lightbeam-satellite-demo` (metadata catalog only; receivers stay offline).
 
 ### Android
 

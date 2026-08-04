@@ -1,32 +1,34 @@
-# React + TypeScript + Vite
+# LightBeam Web Encoder
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Vite + React encoder for LBOP optical transmissions. File bytes stay on-device; optional Supabase catalog stores **metadata only** (hash, title, sizes).
 
-Currently, two official plugins are available:
+## Local
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+cp .env.example .env.local   # fill VITE_SUPABASE_* from Supabase dashboard
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Deploy
+
+- **Production:** https://lightbeam-web-encoder.vercel.app  
+- **Vercel project:** `lightbeam-web-encoder` (root `apps/web-encoder`)  
+- **Supabase:** `lightbeam-satellite-demo` (`buxiaitqtaecobnshyzz`)  
+- Table: `public.transmissions` (RLS on; anon read/insert for demo catalog)
+
+```bash
+vercel link --yes
+vercel env pull .env.local --yes
+vercel --prod --yes
+```
+
+## Env
+
+| Key | Purpose |
+|-----|---------|
+| `VITE_SUPABASE_URL` | Supabase API URL |
+| `VITE_SUPABASE_ANON_KEY` | Publishable/anon key (browser-safe) |
+| `VITE_PUBLIC_APP_URL` | Canonical site URL |
+
+Never put the service role key in the web app.

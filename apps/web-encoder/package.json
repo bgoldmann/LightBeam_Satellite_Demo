@@ -20,6 +20,7 @@
     "@noble/ed25519": "^3.1.0",
     "@noble/hashes": "^2.2.0",
     "@noble/post-quantum": "^0.6.1",
+    "@supabase/supabase-js": "^2.112.0",
     "cbor-x": "^1.6.5",
     "mp4-muxer": "^5.2.2",
     "pako": "^3.0.1",

@@ -13,6 +13,7 @@ import {
   PHONE_SAFE_FFMPEG,
   type ExportFormat,
 } from "./lib/exportVideo";
+import { isSupabaseConfigured, publishTransmissionMetadata } from "./lib/supabase";
 import "./App.css";
 
 type Step = "file" | "settings" | "estimate" | "preview" | "export";
@@ -22,7 +23,10 @@ const copy = {
   en: {
     brand: "LightBeam",
     tagline: "Optical broadcast file transfer",
-    privacy: "Your file stays on this device. Nothing is uploaded.",
+    privacy: "Your file stays on this device. File bytes are never uploaded.",
+    catalogOptIn: "Also publish metadata catalog entry (hash, title — not the file)",
+    catalogOk: "Metadata published to catalog.",
+    catalogSkip: "Catalog skipped (offline / not configured).",
     selectFile: "Select file",
     drop: "Drop a file here or click to browse",
     continue: "Continue",
@@ -45,7 +49,10 @@ const copy = {
   fa: {
     brand: "لایت‌بیم",
     tagline: "انتقال فایل از طریق پخش نوری",
-    privacy: "فایل روی همین دستگاه می‌ماند و آپلود نمی‌شود.",
+    privacy: "فایل روی همین دستگاه می‌ماند. بایت‌های فایل هرگز آپلود نمی‌شوند.",
+    catalogOptIn: "ثبت فراداده در کاتالوگ (هش و عنوان — نه خود فایل)",
+    catalogOk: "فراداده در کاتالوگ ثبت شد.",
+    catalogSkip: "کاتالوگ رد شد (آفلاین / پیکربندی نشده).",
     selectFile: "انتخاب فایل",
     drop: "فایل را اینجا رها کنید یا برای انتخاب کلیک کنید",
     continue: "ادامه",
@@ -86,6 +93,7 @@ export default function App() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [publishCatalog, setPublishCatalog] = useState(false);
   const previewTimer = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -210,8 +218,29 @@ export default function App() {
         downloadText(fresh.info.manifestJson, "transmission-manifest.json");
         downloadText(verificationReport(fresh.info), "verification-report.txt");
         downloadText(fresh.info.payloadHash + "  transmission\n", "checksum.sha256");
+
+        let catalogLine = t.catalogSkip;
+        if (publishCatalog && isSupabaseConfigured) {
+          const pub = await publishTransmissionMetadata({
+            shortCode: fresh.info.shortCode,
+            title,
+            publisherName: publisher,
+            filename: file!.name,
+            mimeType: file!.type || "application/octet-stream",
+            payloadHash: fresh.info.payloadHash,
+            originalLen: fresh.info.originalLen,
+            encodedLen: fresh.info.encodedLen,
+            blockCount: fresh.info.blockCount,
+            blockSize: fresh.info.blockSize,
+            profileId: profile,
+            language: lang,
+            description: description || undefined,
+          });
+          catalogLine = pub.ok ? t.catalogOk : `${t.catalogSkip} (${pub.error})`;
+        }
+
         setExportProgress(
-          `Exported ${frameCount} frames (${name}). ${note ?? ""}\nFallback: ${PHONE_SAFE_FFMPEG}`,
+          `Exported ${frameCount} frames (${name}). ${note ?? ""}\n${catalogLine}\nFallback: ${PHONE_SAFE_FFMPEG}`,
         );
         setInfo(fresh.info);
         setSession(fresh);
@@ -221,7 +250,22 @@ export default function App() {
         setBusy(false);
       }
     },
-    [session, info, fileBytes, title, publisher, file, lang, description, compress, profile, loops],
+    [
+      session,
+      info,
+      fileBytes,
+      title,
+      publisher,
+      file,
+      lang,
+      description,
+      compress,
+      profile,
+      loops,
+      publishCatalog,
+      t.catalogOk,
+      t.catalogSkip,
+    ],
   );
 
   return (
@@ -297,6 +341,16 @@ export default function App() {
             <label className="row">
               <input type="checkbox" checked={compress} onChange={(e) => setCompress(e.target.checked)} />
               {t.compression} (deflate when smaller)
+            </label>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={publishCatalog}
+                onChange={(e) => setPublishCatalog(e.target.checked)}
+                disabled={!isSupabaseConfigured}
+              />
+              {t.catalogOptIn}
+              {!isSupabaseConfigured ? " (Supabase env missing)" : ""}
             </label>
             <label>
               {t.profile}
