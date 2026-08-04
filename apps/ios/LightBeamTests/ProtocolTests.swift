@@ -1,0 +1,79 @@
+import XCTest
+@testable import LightBeam
+
+final class ProtocolTests: XCTestCase {
+    func testCRC32Golden() {
+        let data = Data("123456789".utf8)
+        XCTAssertEqual(CRC32.compute(data), 0xCBF4_3926)
+    }
+
+    func testGoldenVectorBeaconAndManifest() throws {
+        let framesB64 = try loadGoldenFrames()
+        let decoder = SessionDecoder()
+
+        for b64 in framesB64.prefix(20) {
+            guard let frame = LBOPFrame.decodeFromQRString(b64) else {
+                XCTFail("Failed to decode frame")
+                return
+            }
+            decoder.ingest(frame: frame)
+        }
+
+        XCTAssertNotEqual(decoder.stage, .searching)
+        XCTAssertGreaterThan(decoder.blockCount, 0)
+    }
+
+    func testGoldenVectorFullDecode() throws {
+        let framesB64 = try loadGoldenFrames()
+        let decoder = SessionDecoder()
+
+        for b64 in framesB64 {
+            if let frame = LBOPFrame.decodeFromQRString(b64) {
+                decoder.ingest(frame: frame)
+            }
+        }
+
+        let result = decoder.tryFinalize()
+        XCTAssertNotNil(result)
+        XCTAssertEqual(decoder.stage, .complete)
+        XCTAssertEqual(result?.filename, "golden.txt")
+        let text = String(data: result!.fileData, encoding: .utf8) ?? ""
+        XCTAssertTrue(text.contains("LightBeam LBOP/1 golden vector"))
+    }
+
+    func testDataPayloadRoundtrip() throws {
+        let neighbors = [0, 1]
+        let symbol = Data(repeating: 0xAB, count: 32)
+        var payload = Data()
+        payload.append(contentsOf: [0, 2, 0, 2])
+        payload.append(contentsOf: [0, 0, 0, 1])
+        payload.append(symbol)
+
+        let decoded = try DataPayload.decode(payload)
+        XCTAssertEqual(decoded.degree, 2)
+        XCTAssertEqual(decoded.neighbors, neighbors)
+        XCTAssertEqual(decoded.symbolBytes, symbol)
+    }
+
+    func testZlibDeflateDecompression() throws {
+        // pako.deflate("LightBeam deflate test") — matches web-encoder compression
+        let compressed = Data(base64Encoded: "eJzzyUzPKHFKTcxVSElNy0ksSVUoSS0uAQBdeAhD")!
+        let decompressed = try PayloadProcessor.decompressIfNeeded(compressed, compression: "deflate")
+        XCTAssertEqual(String(data: decompressed, encoding: .utf8), "LightBeam deflate test")
+    }
+
+    private func loadGoldenFrames() throws -> [String] {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let vectorURL = repoRoot.appendingPathComponent("spec/test-vectors/v0.1-golden.json")
+        let data = try Data(contentsOf: vectorURL)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let frames = json?["frames_b64"] as? [String] else {
+            throw NSError(domain: "Test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing frames_b64"])
+        }
+        return frames
+    }
+}

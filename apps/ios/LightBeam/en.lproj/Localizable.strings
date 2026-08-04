@@ -1,0 +1,75 @@
+"app.name" = "LightBeam";
+"offline.notice" = "No Internet connection is required.";
+
+"home.tagline" = "Receive files optically from TV broadcasts or recorded video — fully offline.";
+"home.actions" = "Receive";
+"home.learn" = "Learn";
+"home.scanTV" = "Scan TV";
+"home.decodeVideo" = "Decode Video";
+"home.recoveredFiles" = "Recovered Files";
+"home.howItWorks" = "How It Works";
+"home.safety" = "Safety & Verification";
+"home.settings" = "Settings";
+
+"stage.title" = "Status";
+"stage.searching" = "Searching";
+"stage.sessionFound" = "Session found";
+"stage.readingManifest" = "Reading manifest";
+"stage.collectingData" = "Collecting data";
+"stage.reconstructing" = "Reconstructing";
+"stage.verifying" = "Verifying";
+"stage.complete" = "Complete";
+"stage.failed" = "Failed";
+
+"scanner.sessionCode" = "Session %@";
+
+"decode.subtitle" = "Import a screen recording or exported LightBeam video to decode LBOP frames offline.";
+"decode.tip" = "Only videos that show flashing LightBeam QR frames can be recovered.";
+"decode.phoneSafeHint" = "Prefer H.264 MP4 from the web encoder (phone-safe). WebM is often unsupported on iOS.";
+"decode.pickPhotos" = "Choose from Photos";
+"decode.pickDocument" = "Choose Video File";
+"decode.processing" = "Decoding frames…";
+"decode.framesSampled" = "Sampled %d QR frames";
+"decode.progress" = "Frames scanned: %d · QR hits: %d";
+"decode.loadFailed" = "Could not load the selected video.";
+"decode.incomplete" = "Need more of the loop or a higher-quality recording.";
+"decode.noSignal" = "This file played as video, but it is not a LightBeam transmission (no optical codes).";
+"decode.unsupported" = "This device cannot decode that codec. Re-export as H.264 MP4 from the encoder.";
+"decode.verified" = "Recovered and verified.";
+
+"completion.navTitle" = "Recovered";
+"completion.title" = "File verified";
+"completion.filename" = "Filename";
+"completion.titleLabel" = "Title";
+"completion.publisher" = "Publisher";
+"completion.size" = "Size";
+"completion.hash" = "Payload hash";
+"completion.share" = "Share file";
+
+"files.empty.title" = "No recovered files yet";
+"files.empty.subtitle" = "Scan a LightBeam broadcast or decode a video to save files here.";
+
+"how.intro" = "LightBeam transmits files as a loop of QR codes using the LBOP/1 optical protocol.";
+"how.step1" = "A web encoder packages your file with fountain codes and signs a CBOR manifest.";
+"how.step2" = "Each QR code carries one base64-encoded LBOP frame (beacon, manifest, or data).";
+"how.step3" = "This app scans frames, reconstructs the payload with LT decoding, and verifies SHA-256.";
+"how.step4" = "Verified files are saved locally and can be shared — no network required.";
+
+"safety.intro" = "Always verify optical transfers before trusting recovered content.";
+"safety.verifyHash" = "Compare the payload SHA-256 hash with the publisher manifest when available.";
+"safety.offline" = "Decoding happens entirely on device; no data is uploaded.";
+"safety.publisher" = "Manifest signatures (Ed25519) can be verified in future releases.";
+"safety.demo" = "Use demo content only until publisher keys are pinned for production.";
+
+"settings.language" = "Language";
+"settings.language.system" = "System";
+"settings.language.note" = "Persian (فارسی) strings are provided for offline UI.";
+"settings.bundleId" = "Bundle ID";
+"settings.protocol" = "Protocol";
+
+"common.done" = "Done";
+"common.ok" = "OK";
+"common.error" = "Error";
+"common.delete" = "Delete";
+
+"error.hashMismatch" = "Payload hash does not match the manifest.";

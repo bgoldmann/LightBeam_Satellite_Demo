@@ -1,0 +1,7 @@
+LightBeam Phase 1 — Offline Optical Receiver Demo
+
+This bundled note confirms the Android receiver operates without network access.
+Scan QR codes from the LightBeam web encoder; each code carries a base64 LBOP/1 frame.
+
+Protocol: LBOP/1
+Full CBOR manifest parity with the web encoder will come from the shared Rust core in a later milestone.

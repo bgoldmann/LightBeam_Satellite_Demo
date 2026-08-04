@@ -1,0 +1,19 @@
+[package]
+name = "lightbeam-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LBOP/1 frame envelope, session IDs, and packaging"
+
+[dependencies]
+crc32fast = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_cbor = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }

@@ -1,0 +1,46 @@
+{
+  "name": "lightbeam-web-encoder",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty false",
+    "test:interop": "npx --yes tsx scripts/interop-roundtrip.ts",
+    "test:video": "node --import tsx scripts/decode-video.ts",
+    "test:video:frames": "node --import tsx scripts/decode-video-frames.ts",
+    "generate:test-video": "node --import tsx scripts/generate-test-video.ts",
+    "phonesafe:ffmpeg": "echo 'ffmpeg -y -i transmission.webm -c:v libx264 -pix_fmt yuv420p -movflags +faststart transmission-phone-safe.mp4'"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/ed25519": "^3.1.0",
+    "@noble/hashes": "^2.2.0",
+    "@noble/post-quantum": "^0.6.1",
+    "cbor-x": "^1.6.5",
+    "mp4-muxer": "^5.2.2",
+    "pako": "^3.0.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.13.3",
+    "@types/pako": "^2.0.4",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "jsqr": "^1.4.0",
+    "oxlint": "^1.75.0",
+    "sharp": "^0.35.3",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.5",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0"
+  }
+}

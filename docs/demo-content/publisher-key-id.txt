@@ -1,0 +1,1 @@
+Embed demo publisher key ID from verification-report after first encode.

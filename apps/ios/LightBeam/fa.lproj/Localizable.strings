@@ -1,0 +1,75 @@
+"app.name" = "لایت‌بیم";
+"offline.notice" = "اتصال اینترنت لازم نیست.";
+
+"home.tagline" = "دریافت فایل به‌صورت نوری از پخش تلویزیون یا ویدیوی ضبط‌شده — کاملاً آفلاین.";
+"home.actions" = "دریافت";
+"home.learn" = "راهنما";
+"home.scanTV" = "اسکن تلویزیون";
+"home.decodeVideo" = "رمزگشایی ویدیو";
+"home.recoveredFiles" = "فایل‌های بازیابی‌شده";
+"home.howItWorks" = "نحوه کار";
+"home.safety" = "ایمنی و تأیید";
+"home.settings" = "تنظیمات";
+
+"stage.title" = "وضعیت";
+"stage.searching" = "در حال جستجو";
+"stage.sessionFound" = "نشست پیدا شد";
+"stage.readingManifest" = "خواندن مانیفست";
+"stage.collectingData" = "جمع‌آوری داده";
+"stage.reconstructing" = "بازسازی";
+"stage.verifying" = "در حال تأیید";
+"stage.complete" = "کامل شد";
+"stage.failed" = "ناموفق";
+
+"scanner.sessionCode" = "نشست %@";
+
+"decode.subtitle" = "یک ضبط صفحه یا ویدیوی LightBeam را برای رمزگشایی آفلاین فریم‌های LBOP وارد کنید.";
+"decode.tip" = "فقط ویدیوهایی که فریم‌های QR لایت‌بیم چشمک‌زن دارند قابل بازیابی هستند.";
+"decode.phoneSafeHint" = "خروجی H.264 MP4 از انکودر وب را ترجیح دهید (سازگار با گوشی). WebM اغلب در iOS پشتیبانی نمی‌شود.";
+"decode.pickPhotos" = "انتخاب از Photos";
+"decode.pickDocument" = "انتخاب فایل ویدیو";
+"decode.processing" = "در حال رمزگشایی فریم‌ها…";
+"decode.framesSampled" = "%d فریم QR نمونه‌گیری شد";
+"decode.progress" = "فریم‌های اسکن‌شده: %d · QR: %d";
+"decode.loadFailed" = "بارگذاری ویدیوی انتخاب‌شده ممکن نشد.";
+"decode.incomplete" = "به حلقه بیشتر یا کیفیت بالاتر ضبط نیاز است.";
+"decode.noSignal" = "ویدیو باز شد، اما انتقال لایت‌بیم نیست (کد نوری یافت نشد).";
+"decode.unsupported" = "این دستگاه این کدک را نمی‌خواند. از انکودر خروجی H.264 MP4 بگیرید.";
+"decode.verified" = "بازیابی و تأیید شد.";
+
+"completion.navTitle" = "بازیابی شد";
+"completion.title" = "فایل تأیید شد";
+"completion.filename" = "نام فایل";
+"completion.titleLabel" = "عنوان";
+"completion.publisher" = "ناشر";
+"completion.size" = "اندازه";
+"completion.hash" = "هش payload";
+"completion.share" = "اشتراک فایل";
+
+"files.empty.title" = "هنوز فایلی بازیابی نشده";
+"files.empty.subtitle" = "یک پخش LightBeam را اسکن کنید یا ویدیو را رمزگشایی کنید.";
+
+"how.intro" = "LightBeam فایل‌ها را به‌صورت حلقه‌ای از QR با پروتکل نوری LBOP/1 منتقل می‌کند.";
+"how.step1" = "رمزگذار وب فایل را با کدهای fountain بسته‌بندی و مانیفست CBOR را امضا می‌کند.";
+"how.step2" = "هر QR یک فریم LBOP به‌صورت base64 (beacon، manifest یا data) حمل می‌کند.";
+"how.step3" = "این اپ فریم‌ها را اسکن، payload را با LT بازسازی و SHA-256 را تأیید می‌کند.";
+"how.step4" = "فایل‌های تأییدشده محلی ذخیره و قابل اشتراک‌اند — بدون شبکه.";
+
+"safety.intro" = "قبل از اعتماد به محتوای بازیابی‌شده، انتقال نوری را تأیید کنید.";
+"safety.verifyHash" = "هش SHA-256 payload را با مانیفست ناشر مقایسه کنید.";
+"safety.offline" = "رمزگشایی کاملاً روی دستگاه انجام می‌شود؛ داده‌ای ارسال نمی‌شود.";
+"safety.publisher" = "امضای مانیفست (Ed25519) در نسخه‌های بعدی قابل تأیید است.";
+"safety.demo" = "تا زمان سنجاق کلید ناشر، فقط محتوای دمو استفاده کنید.";
+
+"settings.language" = "زبان";
+"settings.language.system" = "سیستم";
+"settings.language.note" = "رشته‌های فارسی برای رابط آفلاین فراهم شده‌اند.";
+"settings.bundleId" = "Bundle ID";
+"settings.protocol" = "پروتکل";
+
+"common.done" = "تمام";
+"common.ok" = "باشه";
+"common.error" = "خطا";
+"common.delete" = "حذف";
+
+"error.hashMismatch" = "هش payload با مانیفست مطابقت ندارد.";

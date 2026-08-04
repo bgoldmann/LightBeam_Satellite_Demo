@@ -1,0 +1,62 @@
+name: LightBeam
+options:
+  bundleIdPrefix: com.goldmannllc
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  developmentLanguage: en
+  knownRegions:
+    - en
+    - fa
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  LightBeam:
+    type: application
+    platform: iOS
+    sources:
+      - path: LightBeam
+        excludes:
+          - "**/*.md"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldmannllc.LightBeam
+        INFOPLIST_FILE: LightBeam/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        OTHER_LDFLAGS: "$(inherited) -lz"
+    dependencies: []
+
+  LightBeamTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - LightBeamTests
+    dependencies:
+      - target: LightBeam
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldmannllc.LightBeam.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  LightBeam:
+    build:
+      targets:
+        LightBeam: all
+        LightBeamTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - LightBeamTests
