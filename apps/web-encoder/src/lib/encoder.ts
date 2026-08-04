@@ -96,6 +96,8 @@ export interface SessionInfo {
   publicKeyHex: string;
   estimatedRuntimeSec: number;
   estimatedSymbols: number;
+  /** QR frames per continuous broadcast loop (wraps for missed-code recovery). */
+  loopFrameCount: number;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -110,7 +112,6 @@ export class EncodeSession {
   private encoder!: LtEncoder;
   private manifestCbor!: Uint8Array;
   private beaconJson!: Uint8Array;
-  private nextSymbol = 0;
   private beaconInterval = 8;
   profile: BroadcastProfile;
 
@@ -193,11 +194,14 @@ export class EncodeSession {
     // ~75% of frames are data
     const dataRatio = 6 / 8;
     const estimatedRuntimeSec = Math.ceil(estimatedSymbols / (symbolsPerSec * dataRatio));
+    // One broadcast loop = enough fountain symbols for recovery (+10% headroom)
+    const loopFrameCount = Math.max(Math.ceil(estimatedSymbols * 1.1), blockCount + 16);
 
     session.sessionId = sessionId;
     session.encoder = encoder;
     session.manifestCbor = manifestCbor;
     session.beaconJson = new TextEncoder().encode(JSON.stringify(beacon));
+    session.loopFrameCount = loopFrameCount;
     session.info = {
       sessionId: toHex(sessionId),
       shortCode: sessionShortCode(sessionId),
@@ -212,12 +216,40 @@ export class EncodeSession {
       publicKeyHex: toHex(publicKey),
       estimatedRuntimeSec,
       estimatedSymbols,
+      loopFrameCount,
     };
     return session;
   }
 
-  nextFrameBytes(): Uint8Array {
-    const tick = this.nextSymbol;
+  /** Frames in one complete broadcast cycle (beacon/manifest/data). */
+  loopFrameCount = 0;
+  private emitCount = 0;
+
+  /** Progress within the current loop, 0..1 (after the last emitted frame). */
+  loopProgress(): number {
+    if (this.loopFrameCount <= 0) return 0;
+    if (this.emitCount === 0) return 0;
+    const pos = ((this.emitCount - 1) % this.loopFrameCount) + 1;
+    return pos / this.loopFrameCount;
+  }
+
+  /** 0-based index of the loop that contains the last emitted frame. */
+  loopIndex(): number {
+    if (this.loopFrameCount <= 0 || this.emitCount === 0) return 0;
+    return Math.floor((this.emitCount - 1) / this.loopFrameCount);
+  }
+
+  /**
+   * Next LBOP frame.
+   * When `looping` is true (live preview / TV playout), symbol IDs wrap so the
+   * same cycle repeats forever — missed QR codes are recoverable on the next pass.
+   */
+  nextFrameBytes(opts?: { looping?: boolean }): Uint8Array {
+    const looping = opts?.looping ?? false;
+    const tick =
+      looping && this.loopFrameCount > 0
+        ? this.emitCount % this.loopFrameCount
+        : this.emitCount;
     if (tick % this.beaconInterval === 0) {
       const frame = encodeFrame({
         version: PROTOCOL_VERSION,
@@ -227,7 +259,7 @@ export class EncodeSession {
         symbolId: tick,
         payload: this.beaconJson,
       });
-      this.nextSymbol++;
+      this.emitCount++;
       return frame;
     }
     if (tick % this.beaconInterval === 1) {
@@ -239,7 +271,7 @@ export class EncodeSession {
         symbolId: tick,
         payload: this.manifestCbor,
       });
-      this.nextSymbol++;
+      this.emitCount++;
       return frame;
     }
     const sym = this.encoder.symbolAt(tick);
@@ -252,12 +284,12 @@ export class EncodeSession {
       symbolId: tick,
       payload,
     });
-    this.nextSymbol++;
+    this.emitCount++;
     return frame;
   }
 
-  async nextQrDataUrl(): Promise<string> {
-    const bytes = this.nextFrameBytes();
+  async nextQrDataUrl(opts?: { looping?: boolean }): Promise<string> {
+    const bytes = this.nextFrameBytes(opts);
     // QR byte mode via binary as base64 string for scanner compatibility
     const b64 = bytesToBase64(bytes);
     return QRCode.toDataURL(b64, {

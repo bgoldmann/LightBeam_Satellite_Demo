@@ -37,7 +37,6 @@ const copy = {
     language: "Language",
     compression: "Compression",
     profile: "Broadcast profile",
-    generatePreview: "Start preview",
     stopPreview: "Stop",
     export: "Export WebM",
     exportPhoneSafe: "Export H.264 MP4 (phone-safe)",
@@ -45,6 +44,10 @@ const copy = {
       "Phone Decode Video works best with H.264 MP4. WebM is fine for preview; Android is best-effort for WebM.",
     offline: "No Internet connection is required on receivers.",
     scanHelp: "Open LightBeam and point your camera at this code",
+    loopHelp:
+      "QR codes loop continuously. If the phone misses a code, it will catch it on the next pass.",
+    loopStatus: "Loop {n} · {pct}% of cycle",
+    generatePreview: "Start looping preview",
   },
   fa: {
     brand: "لایت‌بیم",
@@ -63,7 +66,6 @@ const copy = {
     language: "زبان",
     compression: "فشرده‌سازی",
     profile: "پروفایل پخش",
-    generatePreview: "شروع پیش‌نمایش",
     stopPreview: "توقف",
     export: "خروجی WebM",
     exportPhoneSafe: "خروجی H.264 MP4 (سازگار با گوشی)",
@@ -71,6 +73,10 @@ const copy = {
       "رمزگشایی ویدیو روی گوشی با H.264 MP4 بهترین نتیجه را می‌دهد. WebM برای پیش‌نمایش مناسب است.",
     offline: "گیرنده به اینترنت، وای‌فای یا بلوتوث نیاز ندارد.",
     scanHelp: "برای دریافت فایل، دوربین را روبه‌روی تصویر تلویزیون ثابت نگه دارید",
+    loopHelp:
+      "کدهای QR به‌صورت حلقه‌ای تکرار می‌شوند. اگر کدی از دست برود، در دور بعدی گرفته می‌شود.",
+    loopStatus: "حلقه {n} · {pct}٪ از دوره",
+    generatePreview: "شروع پیش‌نمایش حلقه‌ای",
   },
 } as const;
 
@@ -87,15 +93,17 @@ export default function App() {
   const [description, setDescription] = useState("");
   const [compress, setCompress] = useState(true);
   const [profile, setProfile] = useState<ProfileId>("satellite_safe");
-  const [loops, setLoops] = useState(3);
+  const [loops, setLoops] = useState(5);
   const [session, setSession] = useState<EncodeSession | null>(null);
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [publishCatalog, setPublishCatalog] = useState(false);
+  const [loopUi, setLoopUi] = useState({ index: 0, pct: 0 });
   const previewTimer = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const previewBusy = useRef(false);
 
   const fileMeta = useMemo(() => {
     if (!file || !fileBytes) return null;
@@ -152,22 +160,24 @@ export default function App() {
     if (!session) return;
     stopPreview();
     setStep("preview");
+    previewBusy.current = false;
     const tick = async () => {
+      if (previewBusy.current) return;
+      previewBusy.current = true;
       try {
-        const url = await session.nextQrDataUrl();
+        const url = await session.nextQrDataUrl({ looping: true });
         setPreviewUrl(url);
+        setLoopUi({
+          index: session.loopIndex() + 1,
+          pct: Math.round(session.loopProgress() * 100),
+        });
         const canvas = canvasRef.current;
         if (canvas) {
           const ctx = canvas.getContext("2d");
           if (ctx) {
             const img = new Image();
             img.onload = () => {
-              const loopP =
-                (session.info.estimatedSymbols > 0
-                  ? (Date.now() % (session.info.estimatedRuntimeSec * 1000)) /
-                    (session.info.estimatedRuntimeSec * 1000)
-                  : 0);
-              session.drawBroadcastFrame(ctx, img, loopP);
+              session.drawBroadcastFrame(ctx, img, session.loopProgress());
             };
             img.src = url;
           }
@@ -175,6 +185,8 @@ export default function App() {
       } catch (e) {
         console.error(e);
         stopPreview();
+      } finally {
+        previewBusy.current = false;
       }
     };
     await tick();
@@ -364,11 +376,11 @@ export default function App() {
             </label>
             <p className="hint">{PROFILES[profile].description}</p>
             <label>
-              Loop count
+              Loop count (exported video repeats the full QR cycle)
               <input
                 type="number"
                 min={1}
-                max={10}
+                max={20}
                 value={loops}
                 onChange={(e) => setLoops(Number(e.target.value))}
               />
@@ -411,6 +423,10 @@ export default function App() {
                 <dd>~{info.estimatedRuntimeSec}s</dd>
               </div>
               <div>
+                <dt>QR / loop</dt>
+                <dd>{info.loopFrameCount}</dd>
+              </div>
+              <div>
                 <dt>Session</dt>
                 <dd>{info.shortCode}</dd>
               </div>
@@ -430,6 +446,11 @@ export default function App() {
           <section className="preview">
             <h2>Preview & test</h2>
             <p>{t.scanHelp}</p>
+            <p className="hint">{t.loopHelp}</p>
+            <p className="progress">
+              {t.loopStatus.replace("{n}", String(loopUi.index)).replace("{pct}", String(loopUi.pct))}
+              {info ? ` · ${info.loopFrameCount} QR / loop` : ""}
+            </p>
             <canvas ref={canvasRef} width={1920} height={1080} className="broadcast-canvas" />
             {previewUrl && <img src={previewUrl} alt="QR" className="qr-thumb" />}
             <p className="hint">{t.exportHint}</p>

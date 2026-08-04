@@ -48,7 +48,7 @@ async function exportViaMediaRecorder(
   canvas.height = 1080;
   const ctx = canvas.getContext("2d")!;
 
-  const symbolsNeeded = Math.ceil(session.info.estimatedSymbols * 1.1);
+  const symbolsNeeded = session.loopFrameCount || Math.ceil(session.info.estimatedSymbols * 1.1);
   const totalTicks = symbolsNeeded;
   const frameCount = totalTicks * profile.holdFrames * Math.max(1, loops);
 
@@ -76,13 +76,13 @@ async function exportViaMediaRecorder(
       current: videoFrame,
       total: frameCount,
     });
-    const url = await session.nextQrDataUrl();
+    const url = await session.nextQrDataUrl({ looping: true });
     await new Promise<void>((res, rej) => {
       img.onload = () => res();
       img.onerror = () => rej(new Error("QR image load failed"));
       img.src = url;
     });
-    const loopProgress = (tick % totalTicks) / totalTicks;
+    const loopProgress = session.loopProgress();
     for (let h = 0; h < hold; h++) {
       session.drawBroadcastFrame(ctx, img, loopProgress);
       videoFrame++;
@@ -147,7 +147,7 @@ async function exportPhoneSafeMp4WebCodecs(
     framerate: fps,
   });
 
-  const symbolsNeeded = Math.ceil(session.info.estimatedSymbols * 1.1);
+  const symbolsNeeded = session.loopFrameCount || Math.ceil(session.info.estimatedSymbols * 1.1);
   const totalTicks = symbolsNeeded;
   const frameCount = totalTicks * profile.holdFrames * Math.max(1, loops);
   const img = new Image();
@@ -164,13 +164,13 @@ async function exportPhoneSafeMp4WebCodecs(
     });
     if (encoderError) throw encoderError;
 
-    const url = await session.nextQrDataUrl();
+    const url = await session.nextQrDataUrl({ looping: true });
     await new Promise<void>((res, rej) => {
       img.onload = () => res();
       img.onerror = () => rej(new Error("QR image load failed"));
       img.src = url;
     });
-    const loopProgress = (tick % totalTicks) / totalTicks;
+    const loopProgress = session.loopProgress();
     for (let h = 0; h < hold; h++) {
       session.drawBroadcastFrame(ctx, img, loopProgress);
       const frame = new VideoFrame(canvas, {
