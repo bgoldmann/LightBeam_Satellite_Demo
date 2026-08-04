@@ -35,6 +35,7 @@
     <string name="file_saved">فایل ذخیره شد</string>
     <string name="save_cancelled">ذخیره لغو شد</string>
     <string name="filename_label">نام فایل</string>
+    <string name="mime_type_label">نوع</string>
     <string name="publisher_label">ناشر</string>
     <string name="short_code_label">کد کوتاه</string>
     <string name="payload_hash_label">هش محتوا</string>

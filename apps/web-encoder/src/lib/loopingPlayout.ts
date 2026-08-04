@@ -1,4 +1,4 @@
-/** Continuous looping QR playout for live TV / phone capture. */
+/** Continuous QR playout for live TV / phone capture. */
 import type { EncodeSession } from "./encoder";
 
 export type PlayoutStatus = {
@@ -11,12 +11,13 @@ export type PlayoutStatus = {
 };
 
 /**
- * Pre-renders one full QR cycle, then plays it forever with chained timeouts
- * (never uses setInterval — avoids mid-stream stalls when QR encode is slow).
- * Also holds a Screen Wake Lock when the browser supports it.
+ * Live playout streams **new fountain symbols forever** (never reuses symbol IDs).
+ * That way the phone cannot stall mid-decode after one cycle of duplicates.
+ * A visual "loop" meter still wraps for UX; recovery comes from fresh redundancy.
+ *
+ * Prefetches a small buffer of QR data-URLs so encode latency doesn't freeze the screen.
  */
 export class LoopingQrPlayout {
-  private frames: string[] = [];
   private timer: number | null = null;
   private running = false;
   private index = 0;
@@ -24,6 +25,10 @@ export class LoopingQrPlayout {
   private session: EncodeSession;
   private onStatus: (s: PlayoutStatus) => void;
   private onFrame: (dataUrl: string, loopIndex: number, loopPct: number) => void;
+  private buffer: string[] = [];
+  private producing = false;
+  private cycleLen = 1;
+  private prefetchTarget = 12;
 
   constructor(
     session: EncodeSession,
@@ -41,40 +46,29 @@ export class LoopingQrPlayout {
     await this.stop();
     this.running = true;
     this.index = 0;
-    this.frames = [];
+    this.buffer = [];
+    this.cycleLen = Math.max(
+      1,
+      this.session.loopFrameCount || this.session.info.loopFrameCount || 64,
+    );
 
-    const total = Math.max(1, this.session.loopFrameCount || this.session.info.loopFrameCount);
     this.onStatus({
       phase: "preparing",
       prepareCurrent: 0,
-      prepareTotal: total,
+      prepareTotal: this.prefetchTarget,
       loopIndex: 0,
       loopPct: 0,
-      message: "Building looping QR cycle…",
+      message: "Warming up continuous QR stream…",
     });
 
     try {
-      for (let i = 0; i < total; i++) {
-        if (!this.running) return;
-        const url = await this.session.nextQrDataUrl({ looping: true });
-        this.frames.push(url);
-        if (i % 2 === 0 || i === total - 1) {
-          this.onStatus({
-            phase: "preparing",
-            prepareCurrent: i + 1,
-            prepareTotal: total,
-            loopIndex: 0,
-            loopPct: Math.round(((i + 1) / total) * 100),
-            message: `Building looping QR cycle… ${i + 1}/${total}`,
-          });
-        }
-      }
+      await this.fillBuffer(this.prefetchTarget);
     } catch (e) {
       this.running = false;
       this.onStatus({
         phase: "error",
-        prepareCurrent: this.frames.length,
-        prepareTotal: total,
+        prepareCurrent: this.buffer.length,
+        prepareTotal: this.prefetchTarget,
         loopIndex: 0,
         loopPct: 0,
         message: e instanceof Error ? e.message : String(e),
@@ -82,18 +76,19 @@ export class LoopingQrPlayout {
       return;
     }
 
-    if (!this.running || this.frames.length === 0) return;
+    if (!this.running) return;
 
     await this.acquireWakeLock();
     this.onStatus({
       phase: "playing",
-      prepareCurrent: this.frames.length,
-      prepareTotal: this.frames.length,
+      prepareCurrent: this.buffer.length,
+      prepareTotal: this.prefetchTarget,
       loopIndex: 1,
       loopPct: 0,
-      message: "Looping — missed codes recover on the next pass",
+      message: "Streaming unique QR symbols — keep scanning until 100%",
     });
     this.scheduleNext(0);
+    void this.producerLoop();
   }
 
   async stop(): Promise<void> {
@@ -105,15 +100,53 @@ export class LoopingQrPlayout {
     await this.releaseWakeLock();
     this.onStatus({
       phase: "stopped",
-      prepareCurrent: this.frames.length,
-      prepareTotal: this.frames.length,
-      loopIndex: Math.floor(this.index / Math.max(this.frames.length, 1)) + 1,
+      prepareCurrent: 0,
+      prepareTotal: this.prefetchTarget,
+      loopIndex: Math.floor(this.index / this.cycleLen) + 1,
       loopPct: 0,
     });
   }
 
   get isRunning(): boolean {
     return this.running;
+  }
+
+  private async fillBuffer(count: number): Promise<void> {
+    for (let i = 0; i < count; i++) {
+      if (!this.running) return;
+      // IMPORTANT: looping:false → new symbol IDs every frame (no mid-decode stall)
+      const url = await this.session.nextQrDataUrl({ looping: false });
+      this.buffer.push(url);
+      this.onStatus({
+        phase: "preparing",
+        prepareCurrent: this.buffer.length,
+        prepareTotal: count,
+        loopIndex: 0,
+        loopPct: Math.round((this.buffer.length / count) * 100),
+        message: `Warming up continuous QR stream… ${this.buffer.length}/${count}`,
+      });
+    }
+  }
+
+  private async producerLoop(): Promise<void> {
+    if (this.producing) return;
+    this.producing = true;
+    try {
+      while (this.running) {
+        while (this.running && this.buffer.length < this.prefetchTarget) {
+          try {
+            const url = await this.session.nextQrDataUrl({ looping: false });
+            this.buffer.push(url);
+          } catch (e) {
+            console.warn("QR encode failed, retrying", e);
+            await new Promise((r) => setTimeout(r, 50));
+          }
+        }
+        await new Promise((r) => setTimeout(r, 16));
+      }
+    } finally {
+      this.producing = false;
+    }
   }
 
   private scheduleNext(delayMs: number): void {
@@ -124,38 +157,45 @@ export class LoopingQrPlayout {
   }
 
   private async tick(): Promise<void> {
-    if (!this.running || this.frames.length === 0) return;
+    if (!this.running) return;
 
-    const n = this.frames.length;
-    const frameIdx = this.index % n;
-    const url = this.frames[frameIdx];
-    const loopIndex = Math.floor(this.index / n) + 1;
-    const loopPct = Math.round(((frameIdx + 1) / n) * 100);
+    let url = this.buffer.shift();
+    if (!url) {
+      // Buffer underrun — generate one immediately, never stop
+      try {
+        url = await this.session.nextQrDataUrl({ looping: false });
+      } catch (e) {
+        console.warn("playout underrun encode failed", e);
+        this.scheduleNext(50);
+        return;
+      }
+    }
+
+    const loopIndex = Math.floor(this.index / this.cycleLen) + 1;
+    const loopPct = Math.round(((this.index % this.cycleLen) + 1) / this.cycleLen * 100);
 
     try {
       this.onFrame(url, loopIndex, loopPct);
       this.onStatus({
         phase: "playing",
-        prepareCurrent: n,
-        prepareTotal: n,
+        prepareCurrent: this.buffer.length,
+        prepareTotal: this.prefetchTarget,
         loopIndex,
         loopPct,
-        message: "Looping — missed codes recover on the next pass",
+        message: "Streaming unique QR symbols — keep scanning until 100%",
       });
     } catch (e) {
       console.warn("playout frame draw failed", e);
-      // continue — never stop mid-play for a draw glitch
     }
 
     this.index++;
-    // Re-assert wake lock periodically (browsers release it on visibility changes)
     if (this.index % 30 === 0) {
       void this.acquireWakeLock();
     }
 
     const holdMs =
       (1000 / Math.max(1, this.session.profile.fps)) * Math.max(1, this.session.profile.holdFrames);
-    this.scheduleNext(Math.max(100, holdMs));
+    this.scheduleNext(Math.max(120, holdMs));
   }
 
   private async acquireWakeLock(): Promise<void> {
@@ -168,7 +208,7 @@ export class LoopingQrPlayout {
         this.wakeLock = null;
       });
     } catch {
-      /* unsupported / denied — ignore */
+      /* ignore */
     }
   }
 

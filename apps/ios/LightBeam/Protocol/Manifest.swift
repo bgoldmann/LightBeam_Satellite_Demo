@@ -32,7 +32,10 @@ struct ManifestInfo: Equatable {
             filename: CBOR.string(map, "filename") ?? "file.bin",
             title: CBOR.string(map, "title") ?? "Untitled",
             publisherName: CBOR.string(map, "publisher_name") ?? "",
-            mimeType: CBOR.string(map, "mime_type") ?? "application/octet-stream",
+            mimeType: {
+                let raw = CBOR.string(map, "mime_type") ?? ""
+                return raw.isEmpty ? "application/octet-stream" : raw
+            }(),
             compression: CBOR.string(map, "compression") ?? "none"
         )
     }

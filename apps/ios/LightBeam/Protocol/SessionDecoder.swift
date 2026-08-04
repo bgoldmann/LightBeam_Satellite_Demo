@@ -59,108 +59,246 @@ final class SessionDecoder: ObservableObject {
     private var manifest: ManifestInfo?
     private var ltDecoder: LtDecoder?
     private var seenFrameKeys = Set<String>()
+    private let ingestQueue = DispatchQueue(label: "com.goldmannllc.LightBeam.decode", qos: .userInitiated)
 
     func reset() {
-        sessionId = nil
-        beacon = nil
-        manifest = nil
-        ltDecoder = nil
-        seenFrameKeys.removeAll()
-        stage = .searching
-        progress = 0
-        symbolsReceived = 0
-        blocksResolved = 0
-        blockCount = 0
-        shortCode = nil
-        title = nil
-        lastError = nil
+        ingestQueue.sync {
+            sessionId = nil
+            beacon = nil
+            manifest = nil
+            ltDecoder = nil
+            seenFrameKeys.removeAll()
+        }
+        publish(
+            stage: .searching,
+            progress: 0,
+            symbols: 0,
+            resolved: 0,
+            blocks: 0,
+            shortCode: nil,
+            title: nil,
+            error: nil
+        )
     }
 
+    /// Live camera — async so metadata callbacks stay responsive.
     func ingestQRString(_ string: String) {
-        guard let frame = LBOPFrame.decodeFromQRString(string) else { return }
-        ingest(frame: frame)
+        ingestQueue.async { [weak self] in
+            guard let self else { return }
+            let done = self.ingestStringOnQueue(string)
+            let snap = self.snapshotOnQueue()
+            DispatchQueue.main.async {
+                self.publish(
+                    stage: snap.stage,
+                    progress: snap.progress,
+                    symbols: snap.symbols,
+                    resolved: snap.resolved,
+                    blocks: snap.blocks,
+                    shortCode: snap.shortCode,
+                    title: snap.title,
+                    error: snap.error
+                )
+                if done { _ = self.tryFinalize() }
+            }
+        }
     }
 
+    /// Video decode / unit tests — synchronous.
+    func ingestQRStringSync(_ string: String) {
+        var done = false
+        var snap: Snap!
+        ingestQueue.sync {
+            done = self.ingestStringOnQueue(string)
+            snap = self.snapshotOnQueue()
+        }
+        publish(
+            stage: snap.stage,
+            progress: snap.progress,
+            symbols: snap.symbols,
+            resolved: snap.resolved,
+            blocks: snap.blocks,
+            shortCode: snap.shortCode,
+            title: snap.title,
+            error: snap.error
+        )
+        if done { _ = tryFinalize() }
+    }
+
+    /// Used by golden tests with already-parsed frames.
     func ingest(frame: LBOPFrame) {
+        var done = false
+        var snap: Snap!
+        ingestQueue.sync {
+            done = self.ingestFrameOnQueue(frame)
+            snap = self.snapshotOnQueue()
+        }
+        publish(
+            stage: snap.stage,
+            progress: snap.progress,
+            symbols: snap.symbols,
+            resolved: snap.resolved,
+            blocks: snap.blocks,
+            shortCode: snap.shortCode,
+            title: snap.title,
+            error: snap.error
+        )
+        if done { _ = tryFinalize() }
+    }
+
+    private struct Snap {
+        var stage: ScanStage
+        var progress: Double
+        var symbols: Int
+        var resolved: Int
+        var blocks: Int
+        var shortCode: String?
+        var title: String?
+        var error: String?
+    }
+
+    private func ingestStringOnQueue(_ string: String) -> Bool {
+        guard let frame = LBOPFrame.decodeFromQRString(string) else { return false }
+        return ingestFrameOnQueue(frame)
+    }
+
+    private func ingestFrameOnQueue(_ frame: LBOPFrame) -> Bool {
         let key = "\(frame.frameType.rawValue)-\(frame.symbolId)-\(frame.payload.count)"
-        guard !seenFrameKeys.contains(key) else { return }
+        guard !seenFrameKeys.contains(key) else { return false }
         seenFrameKeys.insert(key)
 
         if let sessionId {
-            guard frame.sessionId == sessionId else { return }
+            guard frame.sessionId == sessionId else { return false }
         } else {
             sessionId = frame.sessionId
-            shortCode = LBOPFrame.sessionShortCode(sessionId: frame.sessionId)
-            stage = .sessionFound
         }
 
         switch frame.frameType {
         case .beacon:
             if let info = BeaconInfo.decode(from: frame.payload) {
                 beacon = info
-                blockCount = info.blockCount
-                title = info.title
-                shortCode = info.shortCode ?? shortCode
-                if stage == .sessionFound || stage == .searching {
-                    stage = .readingManifest
-                }
             }
         case .manifest:
             if let info = ManifestInfo.decode(from: frame.payload) {
                 manifest = info
-                blockCount = info.blockCount
-                title = info.title
-                ensureDecoder(
-                    blockCount: info.blockCount,
-                    blockSize: info.blockSize,
-                    originalLen: info.encodedByteLength
-                )
-                stage = .collectingData
+                if ltDecoder == nil {
+                    ltDecoder = LtDecoder(
+                        k: info.blockCount,
+                        blockSize: info.blockSize,
+                        originalLen: info.encodedByteLength
+                    )
+                }
             }
         case .data:
-            ingestDataFrame(frame)
+            guard let ltDecoder else { return false }
+            guard let payload = try? DataPayload.decode(frame.payload) else { return false }
+            _ = ltDecoder.ingest(
+                LTSymbol(
+                    id: frame.symbolId,
+                    degree: payload.degree,
+                    neighbors: payload.neighbors,
+                    payload: payload.symbolBytes
+                )
+            )
         case .endLoop:
             break
         }
+        return ltDecoder?.isComplete == true
+    }
 
-        updateProgress()
+    private func snapshotOnQueue() -> Snap {
+        var stage: ScanStage = .searching
+        if sessionId != nil { stage = .sessionFound }
+        if beacon != nil { stage = .readingManifest }
+        if manifest != nil { stage = .collectingData }
+        if let lt = ltDecoder {
+            if lt.isComplete { stage = .reconstructing }
+            else if lt.usefulCount > 0 { stage = .collectingData }
+        }
+        let k = ltDecoder?.k ?? manifest?.blockCount ?? beacon?.blockCount ?? 0
+        let resolved = ltDecoder?.resolvedCount ?? 0
+        let useful = ltDecoder?.usefulCount ?? 0
+        return Snap(
+            stage: stage,
+            progress: k > 0 ? min(1, Double(resolved) / Double(k)) : 0,
+            symbols: useful,
+            resolved: resolved,
+            blocks: k,
+            shortCode: sessionId.map { LBOPFrame.sessionShortCode(sessionId: $0) } ?? beacon?.shortCode,
+            title: manifest?.title ?? beacon?.title,
+            error: lastError
+        )
+    }
+
+    private func publish(
+        stage: ScanStage,
+        progress: Double,
+        symbols: Int,
+        resolved: Int,
+        blocks: Int,
+        shortCode: String?,
+        title: String?,
+        error: String?
+    ) {
+        let apply = {
+            self.stage = stage
+            self.progress = progress
+            self.symbolsReceived = symbols
+            self.blocksResolved = resolved
+            self.blockCount = blocks
+            self.shortCode = shortCode
+            self.title = title
+            self.lastError = error
+        }
+        if Thread.isMainThread { apply() } else { DispatchQueue.main.sync(execute: apply) }
     }
 
     func tryFinalize() -> SessionDecodeResult? {
-        guard let ltDecoder, ltDecoder.isComplete else { return nil }
-        stage = .reconstructing
+        var localDecoder: LtDecoder?
+        var localManifest: ManifestInfo?
+        var localBeacon: BeaconInfo?
+        var localShort: String?
+        ingestQueue.sync {
+            localDecoder = ltDecoder
+            localManifest = manifest
+            localBeacon = beacon
+            localShort = sessionId.map { LBOPFrame.sessionShortCode(sessionId: $0) } ?? shortCode
+        }
+        guard let ltDecoder = localDecoder, ltDecoder.isComplete else { return nil }
 
         do {
+            stage = .reconstructing
             let encoded = try ltDecoder.reconstruct()
             stage = .verifying
-
-            let expectedHash = manifest?.payloadHash ?? beacon?.payloadHash
+            let expectedHash = localManifest?.payloadHash ?? localBeacon?.payloadHash
             let actualHash = PayloadProcessor.sha256Hex(encoded)
             if let expectedHash, actualHash.lowercased() != expectedHash.lowercased() {
                 lastError = NSLocalizedString("error.hashMismatch", comment: "")
                 stage = .failed
                 return nil
             }
-
-            let compression = manifest?.compression ?? "none"
+            let compression = localManifest?.compression ?? "none"
             let payload = try PayloadProcessor.decompressIfNeeded(encoded, compression: compression)
-
-            let originalExpected = manifest?.originalByteLength ?? beacon?.originalLen ?? payload.count
-            let finalData: Data
-            if payload.count >= originalExpected {
-                finalData = payload.prefix(originalExpected)
-            } else {
-                finalData = payload
+            let originalExpected = localManifest?.originalByteLength ?? localBeacon?.originalLen ?? payload.count
+            if payload.count < originalExpected {
+                lastError = "Recovered file is truncated (\(payload.count)/\(originalExpected) bytes)"
+                stage = .failed
+                return nil
             }
-
+            let finalData = payload.count > originalExpected ? Data(payload.prefix(originalExpected)) : payload
+            let rawName = localManifest?.filename ?? "file.bin"
+            let mime = MediaTypes.resolveMime(
+                filename: rawName,
+                mimeHint: localManifest?.mimeType
+            )
+            let filename = MediaTypes.ensureFilenameExtension(filename: rawName, mime: mime)
             let result = SessionDecodeResult(
-                filename: manifest?.filename ?? "file.bin",
-                title: manifest?.title ?? beacon?.title ?? "Untitled",
-                publisherName: manifest?.publisherName ?? "",
-                mimeType: manifest?.mimeType ?? "application/octet-stream",
+                filename: filename,
+                title: localManifest?.title ?? localBeacon?.title ?? "Untitled",
+                publisherName: localManifest?.publisherName ?? "",
+                mimeType: mime,
                 payloadHash: actualHash,
                 fileData: finalData,
-                shortCode: shortCode
+                shortCode: localShort
             )
             stage = .complete
             progress = 1
@@ -170,43 +308,6 @@ final class SessionDecoder: ObservableObject {
             stage = .failed
             return nil
         }
-    }
-
-    private func ingestDataFrame(_ frame: LBOPFrame) {
-        guard let ltDecoder else { return }
-        guard let payload = try? DataPayload.decode(frame.payload) else { return }
-
-        let symbol = LTSymbol(
-            id: frame.symbolId,
-            degree: payload.degree,
-            neighbors: payload.neighbors,
-            payload: payload.symbolBytes
-        )
-        if ltDecoder.ingest(symbol) {
-            symbolsReceived = ltDecoder.usefulCount
-            blocksResolved = ltDecoder.resolvedCount
-            stage = .collectingData
-        }
-
-        if ltDecoder.isComplete {
-            _ = tryFinalize()
-        }
-        updateProgress()
-    }
-
-    private func ensureDecoder(blockCount: Int, blockSize: Int, originalLen: Int) {
-        if ltDecoder == nil {
-            ltDecoder = LtDecoder(k: blockCount, blockSize: blockSize, originalLen: originalLen)
-            self.blockCount = blockCount
-        }
-    }
-
-    private func updateProgress() {
-        guard blockCount > 0, let ltDecoder else {
-            progress = stage == .complete ? 1 : 0
-            return
-        }
-        progress = min(1, Double(ltDecoder.resolvedCount) / Double(blockCount))
     }
 }
 

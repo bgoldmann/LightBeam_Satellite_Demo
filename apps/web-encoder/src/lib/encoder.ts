@@ -15,6 +15,7 @@ import {
   sha256Hex,
   toHex,
 } from "./protocol";
+import { ensureFilenameExtension, resolveMimeType } from "./mediaTypes";
 import QRCode from "qrcode";
 
 hashes.sha512 = sha512;
@@ -122,7 +123,8 @@ export class EncodeSession {
   static async create(fileBytes: Uint8Array, opts: EncodeOptions): Promise<EncodeSession> {
     const profile = PROFILES[opts.profile];
     const session = new EncodeSession(profile);
-    const filename = sanitizeFilename(opts.filename);
+    const mimeType = resolveMimeType(opts.filename, opts.mimeType);
+    const filename = ensureFilenameExtension(sanitizeFilename(opts.filename), mimeType);
     let payload = fileBytes;
     let compression: "none" | "deflate" = "none";
     if (opts.compress) {
@@ -149,7 +151,7 @@ export class EncodeSession {
       session_id: toHex(sessionId),
       package_id: `pkg_${payloadHash.slice(0, 16)}`,
       filename,
-      mime_type: opts.mimeType,
+      mime_type: mimeType,
       original_byte_length: fileBytes.length,
       encoded_byte_length: payload.length,
       creation_timestamp: Math.floor(Date.now() / 1000),
@@ -241,8 +243,9 @@ export class EncodeSession {
 
   /**
    * Next LBOP frame.
-   * When `looping` is true (live preview / TV playout), symbol IDs wrap so the
-   * same cycle repeats forever — missed QR codes are recoverable on the next pass.
+   * `looping: true` wraps symbol IDs (finite export video that repeats).
+   * Live TV playout must use `looping: false` so phones keep getting new
+   * fountain IDs and cannot stall mid-decode on duplicates.
    */
   nextFrameBytes(opts?: { looping?: boolean }): Uint8Array {
     const looping = opts?.looping ?? false;

@@ -44,12 +44,14 @@ class RecoveredFileStore(context: Context) {
 
     fun saveInternal(filename: String, bytes: ByteArray, payloadHash: String): RecoveredFileEntry {
         val id = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val safeName = filename.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val mime = com.goldmann.lightbeam.protocol.MediaTypes.resolveMime(filename, null)
+        val displayName = com.goldmann.lightbeam.protocol.MediaTypes.ensureFilenameExtension(filename, mime)
+        val safeName = displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
         val file = File(recoveredDir, "${id}_$safeName")
         file.writeBytes(bytes)
         val entry = RecoveredFileEntry(
             id = id,
-            filename = filename,
+            filename = displayName,
             sizeBytes = bytes.size.toLong(),
             payloadHash = payloadHash,
             savedAtMillis = System.currentTimeMillis(),

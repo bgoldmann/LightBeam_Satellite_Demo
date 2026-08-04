@@ -35,6 +35,7 @@
     <string name="file_saved">File saved</string>
     <string name="save_cancelled">Save cancelled</string>
     <string name="filename_label">Filename</string>
+    <string name="mime_type_label">Type</string>
     <string name="publisher_label">Publisher</string>
     <string name="short_code_label">Short code</string>
     <string name="payload_hash_label">Payload hash</string>

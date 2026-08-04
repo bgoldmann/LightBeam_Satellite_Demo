@@ -39,6 +39,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.goldmann.lightbeam.R
 import com.goldmann.lightbeam.camera.ScannerController
+import com.goldmann.lightbeam.protocol.MediaTypes
 import com.goldmann.lightbeam.protocol.SessionPhase
 import com.goldmann.lightbeam.protocol.SessionSnapshot
 import com.goldmann.lightbeam.ui.SessionProgress
@@ -240,8 +241,17 @@ fun CompletionScreen(
     onDone: () -> Unit,
 ) {
     val context = LocalContext.current
+    val saveName = remember(snapshot.filename, snapshot.mimeType) {
+        MediaTypes.ensureFilenameExtension(
+            snapshot.filename ?: "file.bin",
+            MediaTypes.resolveMime(snapshot.filename ?: "file.bin", snapshot.mimeType),
+        )
+    }
+    val saveMime = remember(snapshot.filename, snapshot.mimeType) {
+        MediaTypes.resolveMime(snapshot.filename ?: "file.bin", snapshot.mimeType)
+    }
     val createDoc = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
+        ActivityResultContracts.CreateDocument(saveMime),
     ) { uri ->
         val bytes = snapshot.recoveredBytes
         if (uri != null && bytes != null) {
@@ -257,9 +267,10 @@ fun CompletionScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(stringResource(R.string.completion_title), style = MaterialTheme.typography.headlineSmall)
-        snapshot.filename?.let { Text(stringResource(R.string.filename_label) + ": $it") }
+        Text(stringResource(R.string.filename_label) + ": $saveName")
         snapshot.title?.let { Text(it) }
         snapshot.publisherName?.let { Text(stringResource(R.string.publisher_label) + ": $it") }
+        Text(stringResource(R.string.mime_type_label) + ": $saveMime")
         snapshot.payloadHash?.let { Text(stringResource(R.string.payload_hash_label) + ": ${it.take(16)}…") }
         Text(
             if (snapshot.hashVerified == true) stringResource(R.string.hash_verified)
@@ -267,10 +278,7 @@ fun CompletionScreen(
             color = if (snapshot.hashVerified == true) Color(0xFF5EEAD4) else Color(0xFFF87171),
         )
         Button(
-            onClick = {
-                val name = snapshot.filename ?: "lightbeam_file.bin"
-                createDoc.launch(name)
-            },
+            onClick = { createDoc.launch(saveName) },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(stringResource(R.string.save_file))

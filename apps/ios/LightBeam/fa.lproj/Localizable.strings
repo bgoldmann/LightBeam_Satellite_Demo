@@ -22,6 +22,9 @@
 "stage.failed" = "ناموفق";
 
 "scanner.sessionCode" = "نشست %@";
+"scanner.hits" = "QR دیده شد: %d · LBOP: %d · طول: %d";
+"scanner.keepScanning" = "ادامه دهید — هنوز به کدهای جدید نیاز است.";
+"scanner.cameraDenied" = "دسترسی دوربین رد شد. در تنظیمات → LightBeam فعال کنید.";
 
 "decode.subtitle" = "یک ضبط صفحه یا ویدیوی LightBeam را برای رمزگشایی آفلاین فریم‌های LBOP وارد کنید.";
 "decode.tip" = "فقط ویدیوهایی که فریم‌های QR لایت‌بیم چشمک‌زن دارند قابل بازیابی هستند.";
@@ -45,6 +48,10 @@
 "completion.size" = "اندازه";
 "completion.hash" = "هش payload";
 "completion.share" = "اشتراک فایل";
+"completion.play" = "پخش";
+"completion.open" = "باز کردن / پیش‌نمایش";
+"completion.saveAs" = "ذخیره با نام اصلی";
+"completion.type" = "نوع";
 
 "files.empty.title" = "هنوز فایلی بازیابی نشده";
 "files.empty.subtitle" = "یک پخش LightBeam را اسکن کنید یا ویدیو را رمزگشایی کنید.";

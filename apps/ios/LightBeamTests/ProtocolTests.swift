@@ -62,6 +62,14 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(String(data: decompressed, encoding: .utf8), "LightBeam deflate test")
     }
 
+    func testMediaTypesPreserveVideoExtension() {
+        XCTAssertEqual(MediaTypes.resolveMime(filename: "clip.mp4", mimeHint: ""), "video/mp4")
+        XCTAssertEqual(MediaTypes.resolveMime(filename: "clip.mp4", mimeHint: "application/octet-stream"), "video/mp4")
+        XCTAssertEqual(MediaTypes.ensureFilenameExtension(filename: "clip", mime: "video/mp4"), "clip.mp4")
+        XCTAssertEqual(MediaTypes.ensureFilenameExtension(filename: "movie.MP4", mime: "application/octet-stream"), "movie.MP4")
+        XCTAssertTrue(MediaTypes.isVideo(mime: "video/mp4", filename: "x.bin"))
+    }
+
     private func loadGoldenFrames() throws -> [String] {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

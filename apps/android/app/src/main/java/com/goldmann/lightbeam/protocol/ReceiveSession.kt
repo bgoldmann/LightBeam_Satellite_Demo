@@ -18,6 +18,7 @@ data class SessionSnapshot(
     val title: String?,
     val publisherName: String?,
     val filename: String?,
+    val mimeType: String?,
     val usefulSymbols: Int,
     val estimatedNeed: Int,
     val resolvedBlocks: Int,
@@ -36,6 +37,7 @@ data class SessionSnapshot(
             title == other.title &&
             publisherName == other.publisherName &&
             filename == other.filename &&
+            mimeType == other.mimeType &&
             usefulSymbols == other.usefulSymbols &&
             estimatedNeed == other.estimatedNeed &&
             resolvedBlocks == other.resolvedBlocks &&
@@ -53,6 +55,7 @@ data class SessionSnapshot(
         result = 31 * result + (title?.hashCode() ?: 0)
         result = 31 * result + (publisherName?.hashCode() ?: 0)
         result = 31 * result + (filename?.hashCode() ?: 0)
+        result = 31 * result + (mimeType?.hashCode() ?: 0)
         result = 31 * result + usefulSymbols
         result = 31 * result + estimatedNeed
         result = 31 * result + resolvedBlocks
@@ -106,6 +109,7 @@ class ReceiveSession {
             title = man?.title ?: bec?.title,
             publisherName = man?.publisherName,
             filename = man?.filename,
+            mimeType = man?.mimeType,
             usefulSymbols = useful,
             estimatedNeed = need,
             resolvedBlocks = resolved,

@@ -22,6 +22,9 @@
 "stage.failed" = "Failed";
 
 "scanner.sessionCode" = "Session %@";
+"scanner.hits" = "QR seen: %d · LBOP: %d · last len: %d";
+"scanner.keepScanning" = "Keep pointing — new codes are still needed to finish.";
+"scanner.cameraDenied" = "Camera access denied. Enable it in Settings → LightBeam.";
 
 "decode.subtitle" = "Import a screen recording or exported LightBeam video to decode LBOP frames offline.";
 "decode.tip" = "Only videos that show flashing LightBeam QR frames can be recovered.";
@@ -45,6 +48,10 @@
 "completion.size" = "Size";
 "completion.hash" = "Payload hash";
 "completion.share" = "Share file";
+"completion.play" = "Play";
+"completion.open" = "Open / Preview";
+"completion.saveAs" = "Save with original name";
+"completion.type" = "Type";
 
 "files.empty.title" = "No recovered files yet";
 "files.empty.subtitle" = "Scan a LightBeam broadcast or decode a video to save files here.";

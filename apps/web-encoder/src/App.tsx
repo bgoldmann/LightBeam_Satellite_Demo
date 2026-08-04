@@ -15,6 +15,7 @@ import {
 } from "./lib/exportVideo";
 import { isSupabaseConfigured, publishTransmissionMetadata } from "./lib/supabase";
 import { LoopingQrPlayout, type PlayoutStatus } from "./lib/loopingPlayout";
+import { resolveMimeType } from "./lib/mediaTypes";
 import "./App.css";
 
 type Step = "file" | "settings" | "estimate" | "preview" | "export";
@@ -46,9 +47,9 @@ const copy = {
     offline: "No Internet connection is required on receivers.",
     scanHelp: "Open LightBeam and point your camera at this code",
     loopHelp:
-      "QR codes loop continuously. If the phone misses a code, it will catch it on the next pass.",
-    loopStatus: "Loop {n} · {pct}% of cycle",
-    generatePreview: "Start looping preview",
+      "QR stream sends unique codes continuously. Keep scanning until progress hits 100% — missed codes are covered by later symbols.",
+    loopStatus: "Pass {n} · {pct}%",
+    generatePreview: "Start continuous QR stream",
   },
   fa: {
     brand: "لایت‌بیم",
@@ -75,8 +76,8 @@ const copy = {
     offline: "گیرنده به اینترنت، وای‌فای یا بلوتوث نیاز ندارد.",
     scanHelp: "برای دریافت فایل، دوربین را روبه‌روی تصویر تلویزیون ثابت نگه دارید",
     loopHelp:
-      "کدهای QR به‌صورت حلقه‌ای تکرار می‌شوند. اگر کدی از دست برود، در دور بعدی گرفته می‌شود.",
-    loopStatus: "حلقه {n} · {pct}٪ از دوره",
+      "جریان QR کدهای یکتا می‌فرستد. تا رسیدن پیشرفت به ۱۰۰٪ اسکن را ادامه دهید.",
+    loopStatus: "دور {n} · {pct}٪",
     generatePreview: "شروع پیش‌نمایش حلقه‌ای",
   },
 } as const;
@@ -111,7 +112,7 @@ export default function App() {
     if (!file || !fileBytes) return null;
     return {
       name: file.name,
-      type: file.type || "application/octet-stream",
+      type: resolveMimeType(file.name, file.type),
       size: fileBytes.length,
     };
   }, [file, fileBytes]);
@@ -135,7 +136,7 @@ export default function App() {
         title,
         publisherName: publisher,
         filename: file.name,
-        mimeType: file.type || "application/octet-stream",
+        mimeType: resolveMimeType(file.name, file.type),
         language: lang,
         description: description || undefined,
         compress,
@@ -211,7 +212,7 @@ export default function App() {
           title,
           publisherName: publisher,
           filename: file!.name,
-          mimeType: file!.type || "application/octet-stream",
+          mimeType: resolveMimeType(file!.name, file!.type),
           language: lang,
           description: description || undefined,
           compress,
@@ -242,7 +243,7 @@ export default function App() {
             title,
             publisherName: publisher,
             filename: file!.name,
-            mimeType: file!.type || "application/octet-stream",
+            mimeType: resolveMimeType(file!.name, file!.type),
             payloadHash: fresh.info.payloadHash,
             originalLen: fresh.info.originalLen,
             encodedLen: fresh.info.encodedLen,

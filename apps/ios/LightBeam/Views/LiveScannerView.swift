@@ -8,6 +8,7 @@ struct LiveScannerView: View {
 
     @State private var completedResult: SessionDecodeResult?
     @State private var showCompletion = false
+    @State private var lbopHits = 0
 
     var body: some View {
         ZStack {
@@ -37,16 +38,37 @@ struct LiveScannerView: View {
         .navigationBarHidden(true)
         .onAppear {
             KeepAwake.setEnabled(true)
+            decoder.reset()
             scanner.onQRDetected = { qr in
                 decoder.ingestQRString(qr)
-                if let result = decoder.tryFinalize() {
-                    completedResult = result
-                    showCompletion = true
-                    scanner.stop()
-                    KeepAwake.setEnabled(false)
-                }
             }
+            // Poll completion — ingest is async off-main
             scanner.start()
+        }
+        .onChange(of: decoder.symbolsReceived) { symbols in
+            if symbols > lbopHits { lbopHits = symbols }
+        }
+        .onChange(of: decoder.stage) { stage in
+            guard stage == .complete || stage == .reconstructing || stage == .verifying else { return }
+            if showCompletion { return }
+            if let result = decoder.tryFinalize() {
+                completedResult = result
+                showCompletion = true
+                scanner.stop()
+                KeepAwake.setEnabled(false)
+            }
+        }
+        .onChange(of: decoder.blocksResolved) { _ in
+            guard decoder.blockCount > 0,
+                  decoder.blocksResolved >= decoder.blockCount,
+                  !showCompletion
+            else { return }
+            if let result = decoder.tryFinalize() {
+                completedResult = result
+                showCompletion = true
+                scanner.stop()
+                KeepAwake.setEnabled(false)
+            }
         }
         .onDisappear {
             scanner.stop()
@@ -55,9 +77,6 @@ struct LiveScannerView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             KeepAwake.setEnabled(true)
             scanner.start()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            // Stay configured; idle timer off only while foreground scanning
         }
         .fullScreenCover(isPresented: $showCompletion) {
             if let result = completedResult {
@@ -100,6 +119,29 @@ struct LiveScannerView: View {
             }
             .font(.caption)
             .foregroundStyle(.white.opacity(0.85))
+
+            Text(
+                String(
+                    format: NSLocalizedString("scanner.hits", comment: ""),
+                    scanner.qrHitCount,
+                    lbopHits,
+                    scanner.lastPayloadLength
+                )
+            )
+            .font(.caption2.monospaced())
+            .foregroundStyle(scanner.qrHitCount > 0 ? Color.green : Color.white.opacity(0.7))
+
+            if decoder.blockCount > 0 && decoder.blocksResolved > 0 && decoder.blocksResolved < decoder.blockCount {
+                Text("scanner.keepScanning")
+                    .font(.caption2)
+                    .foregroundStyle(.yellow)
+            }
+
+            if scanner.authorizationDenied || scanner.cameraError != nil {
+                Text(scanner.cameraError ?? NSLocalizedString("scanner.cameraDenied", comment: ""))
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
 
             Text("offline.notice")
                 .font(.caption2)

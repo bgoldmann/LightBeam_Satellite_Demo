@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.goldmannllc.lightbeam"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0-m0"

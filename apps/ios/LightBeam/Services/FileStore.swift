@@ -16,8 +16,13 @@ enum FileStore {
 
     static func saveRecord(from result: SessionDecodeResult) throws -> RecoveredFileRecord {
         let id = UUID()
-        let safeName = sanitizeFilename(result.filename)
-        let relative = "Recovered/\(id.uuidString)_\(safeName)"
+        let mime = MediaTypes.resolveMime(filename: result.filename, mimeHint: result.mimeType)
+        let safeName = MediaTypes.ensureFilenameExtension(
+            filename: sanitizeFilename(result.filename),
+            mime: mime
+        )
+        // Leaf name is the original filename+extension (folder isolates collisions).
+        let relative = "Recovered/\(id.uuidString)/\(safeName)"
         let url = documentsDirectory.appendingPathComponent(relative)
 
         try FileManager.default.createDirectory(
@@ -31,7 +36,7 @@ enum FileStore {
             filename: safeName,
             title: result.title,
             publisherName: result.publisherName,
-            mimeType: result.mimeType,
+            mimeType: mime,
             payloadHash: result.payloadHash,
             byteCount: result.fileData.count,
             recoveredAt: Date(),
@@ -46,7 +51,12 @@ enum FileStore {
     }
 
     static func deleteRecord(_ record: RecoveredFileRecord) throws {
-        try? FileManager.default.removeItem(at: record.fileURL)
+        let url = record.fileURL
+        try? FileManager.default.removeItem(at: url)
+        let parent = url.deletingLastPathComponent()
+        if (try? FileManager.default.contentsOfDirectory(atPath: parent.path))?.isEmpty == true {
+            try? FileManager.default.removeItem(at: parent)
+        }
         var records = loadRecords().filter { $0.id != record.id }
         let data = try JSONEncoder().encode(records)
         try data.write(to: indexURL, options: .atomic)

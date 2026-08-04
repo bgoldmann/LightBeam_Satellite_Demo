@@ -55,9 +55,13 @@ object ManifestParser {
             else -> v.toString()
         }
 
+        val rawName = LbopCodec.sanitizeFilename(str("filename", "file.bin"))
+        val rawMime = str("mime_type", "application/octet-stream").ifBlank { "application/octet-stream" }
+        val mime = MediaTypes.resolveMime(rawName, rawMime)
+        val filename = MediaTypes.ensureFilenameExtension(rawName, mime)
         return ManifestInfo(
-            filename = LbopCodec.sanitizeFilename(str("filename", "file.bin")),
-            mimeType = str("mime_type", "application/octet-stream"),
+            filename = filename,
+            mimeType = mime,
             originalByteLength = num("original_byte_length"),
             encodedByteLength = num("encoded_byte_length"),
             payloadHash = str("payload_hash"),

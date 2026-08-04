@@ -71,8 +71,21 @@ struct LBOPFrame {
     }
 
     static func decodeFromQRString(_ string: String) -> LBOPFrame? {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let data = Data(base64Encoded: trimmed) else { return nil }
+        var trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Some scanners strip padding or inject whitespace/newlines inside base64
+        trimmed = trimmed.replacingOccurrences(of: "\n", with: "")
+        trimmed = trimmed.replacingOccurrences(of: "\r", with: "")
+        trimmed = trimmed.replacingOccurrences(of: " ", with: "")
+        // URL-safe base64 variants
+        trimmed = trimmed.replacingOccurrences(of: "-", with: "+")
+        trimmed = trimmed.replacingOccurrences(of: "_", with: "/")
+        let rem = trimmed.count % 4
+        if rem > 0 {
+            trimmed += String(repeating: "=", count: 4 - rem)
+        }
+        guard let data = Data(base64Encoded: trimmed, options: [.ignoreUnknownCharacters]) else {
+            return nil
+        }
         return try? decode(data)
     }
 
