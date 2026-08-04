@@ -10,6 +10,7 @@
 		02F82F9FC9E8B6BDCAB07ED3 /* SafetyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0550C314003AD520EC7205F3 /* SafetyView.swift */; };
 		0E3406F347D60CE824338D0A /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 11C5EE12446BF2FEDE9F3260 /* Localizable.strings */; };
 		19A196A500F1C05D19CB8C07 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1B6B27D13981013B525B1A /* SettingsView.swift */; };
+		23D4F7D1B72B5AAA7083E708 /* KeepAwake.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43484102A33B2CA8B2B6C5DC /* KeepAwake.swift */; };
 		2729090E8254B4A58EFEF164 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE3B4FE5EE8C3A175702CAA /* ContentView.swift */; };
 		2C36C438227FF2EE9E518D93 /* LBOPFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8934C9EC1818E28738873AA2 /* LBOPFrame.swift */; };
 		3B5A0343161F8903C2572AA5 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE50325C6AB91C448ACE807F /* HomeView.swift */; };
@@ -51,6 +52,7 @@
 		0DE3B4FE5EE8C3A175702CAA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		1DD170D0187425F02FBCA719 /* CameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreview.swift; sourceTree = "<group>"; };
 		21C366739755294D58995EE7 /* LightBeamTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LightBeamTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		43484102A33B2CA8B2B6C5DC /* KeepAwake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeepAwake.swift; sourceTree = "<group>"; };
 		4995A5C1D6E76EACF763BC39 /* ProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolTests.swift; sourceTree = "<group>"; };
 		49DC2BB54B340E0E38EC1814 /* CBOR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CBOR.swift; sourceTree = "<group>"; };
 		500D28221FD6CB961ED5ACB1 /* CameraScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraScanner.swift; sourceTree = "<group>"; };
@@ -100,6 +102,7 @@
 			children = (
 				500D28221FD6CB961ED5ACB1 /* CameraScanner.swift */,
 				86CC517181B72E74713B8FCE /* FileStore.swift */,
+				43484102A33B2CA8B2B6C5DC /* KeepAwake.swift */,
 				66DF73C5B89298FC746CEAFC /* VideoFrameSampler.swift */,
 			);
 			path = Services;
@@ -211,6 +214,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					D8ED4BC11C814103616ABF30 = {
+						DevelopmentTeam = 9SA68Z35FA;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -273,6 +277,7 @@
 				E414ED20474518BA0AD53C7B /* FileStore.swift in Sources */,
 				3B5A0343161F8903C2572AA5 /* HomeView.swift in Sources */,
 				85B473CDA473D2672AC0DC61 /* HowItWorksView.swift in Sources */,
+				23D4F7D1B72B5AAA7083E708 /* KeepAwake.swift in Sources */,
 				2C36C438227FF2EE9E518D93 /* LBOPFrame.swift in Sources */,
 				8A531B66453CB2B44C444B3B /* LightBeamApp.swift in Sources */,
 				E5D5CB346DACD2824DC4A00F /* LiveScannerView.swift in Sources */,

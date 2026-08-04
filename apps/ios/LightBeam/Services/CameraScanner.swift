@@ -9,10 +9,12 @@ final class CameraScanner: NSObject, ObservableObject {
 
     private let sessionQueue = DispatchQueue(label: "com.goldmannllc.LightBeam.camera")
     private var isConfigured = false
+    private var interruptionObserver: NSObjectProtocol?
 
     func start() {
         sessionQueue.async {
             self.configureIfNeeded()
+            self.observeInterruptionsIfNeeded()
             if !self.session.isRunning {
                 self.session.startRunning()
             }
@@ -27,10 +29,29 @@ final class CameraScanner: NSObject, ObservableObject {
         }
     }
 
+    private func observeInterruptionsIfNeeded() {
+        guard interruptionObserver == nil else { return }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: .AVCaptureSessionWasInterrupted,
+            object: session,
+            queue: .main
+        ) { [weak self] _ in
+            // Resume when possible — sleep/lock briefly interrupts capture
+            self?.start()
+        }
+        NotificationCenter.default.addObserver(
+            forName: .AVCaptureSessionInterruptionEnded,
+            object: session,
+            queue: .main
+        ) { [weak self] _ in
+            self?.start()
+        }
+    }
+
     private func configureIfNeeded() {
         guard !isConfigured else { return }
         session.beginConfiguration()
-        session.sessionPreset = .hd1920x1080
+        session.sessionPreset = .hd1280x720
 
         guard
             let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
@@ -41,6 +62,19 @@ final class CameraScanner: NSObject, ObservableObject {
             return
         }
         session.addInput(input)
+
+        // Prefer continuous autofocus / exposure for TV QR capture
+        try? device.lockForConfiguration()
+        if device.isFocusModeSupported(.continuousAutoFocus) {
+            device.focusMode = .continuousAutoFocus
+        }
+        if device.isExposureModeSupported(.continuousAutoExposure) {
+            device.exposureMode = .continuousAutoExposure
+        }
+        if device.isLowLightBoostSupported {
+            device.automaticallyEnablesLowLightBoostWhenAvailable = true
+        }
+        device.unlockForConfiguration()
 
         let output = AVCaptureVideoDataOutput()
         output.videoSettings = [

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct LiveScannerView: View {
     @Environment(\.dismiss) private var dismiss
@@ -35,18 +36,28 @@ struct LiveScannerView: View {
         }
         .navigationBarHidden(true)
         .onAppear {
+            KeepAwake.setEnabled(true)
             scanner.onQRDetected = { qr in
                 decoder.ingestQRString(qr)
                 if let result = decoder.tryFinalize() {
                     completedResult = result
                     showCompletion = true
                     scanner.stop()
+                    KeepAwake.setEnabled(false)
                 }
             }
             scanner.start()
         }
         .onDisappear {
             scanner.stop()
+            KeepAwake.setEnabled(false)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            KeepAwake.setEnabled(true)
+            scanner.start()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            // Stay configured; idle timer off only while foreground scanning
         }
         .fullScreenCover(isPresented: $showCompletion) {
             if let result = completedResult {

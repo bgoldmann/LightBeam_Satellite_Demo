@@ -161,6 +161,7 @@ struct DecodeVideoView: View {
         report = nil
         statusMessage = nil
         completedResult = nil
+        KeepAwake.setEnabled(true)
 
         let needsStop = url.startAccessingSecurityScopedResource()
         VideoFrameSampler.sampleQRStrings(
@@ -181,6 +182,7 @@ struct DecodeVideoView: View {
             completion: { result in
                 if needsStop { url.stopAccessingSecurityScopedResource() }
                 isProcessing = false
+                KeepAwake.setEnabled(false)
                 switch result {
                 case .success(var r):
                     framesSampled = r.framesScanned

@@ -14,6 +14,7 @@ import {
   type ExportFormat,
 } from "./lib/exportVideo";
 import { isSupabaseConfigured, publishTransmissionMetadata } from "./lib/supabase";
+import { LoopingQrPlayout, type PlayoutStatus } from "./lib/loopingPlayout";
 import "./App.css";
 
 type Step = "file" | "settings" | "estimate" | "preview" | "export";
@@ -101,9 +102,10 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [publishCatalog, setPublishCatalog] = useState(false);
   const [loopUi, setLoopUi] = useState({ index: 0, pct: 0 });
+  const [playoutStatus, setPlayoutStatus] = useState<PlayoutStatus | null>(null);
   const previewTimer = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const previewBusy = useRef(false);
+  const playoutRef = useRef<LoopingQrPlayout | null>(null);
 
   const fileMeta = useMemo(() => {
     if (!file || !fileBytes) return null;
@@ -154,47 +156,49 @@ export default function App() {
       window.clearInterval(previewTimer.current);
       previewTimer.current = null;
     }
+    void playoutRef.current?.stop();
+    playoutRef.current = null;
   }, []);
+
+  const drawFrame = useCallback((url: string, loopIndex: number, loopPct: number) => {
+    setPreviewUrl(url);
+    setLoopUi({ index: loopIndex, pct: loopPct });
+    const canvas = canvasRef.current;
+    const sess = session;
+    if (!canvas || !sess) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const img = new Image();
+    img.onload = () => {
+      sess.drawBroadcastFrame(ctx, img, loopPct / 100);
+    };
+    img.src = url;
+  }, [session]);
 
   const startPreview = useCallback(async () => {
     if (!session) return;
     stopPreview();
     setStep("preview");
-    previewBusy.current = false;
-    const tick = async () => {
-      if (previewBusy.current) return;
-      previewBusy.current = true;
-      try {
-        const url = await session.nextQrDataUrl({ looping: true });
-        setPreviewUrl(url);
-        setLoopUi({
-          index: session.loopIndex() + 1,
-          pct: Math.round(session.loopProgress() * 100),
-        });
-        const canvas = canvasRef.current;
-        if (canvas) {
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            const img = new Image();
-            img.onload = () => {
-              session.drawBroadcastFrame(ctx, img, session.loopProgress());
-            };
-            img.src = url;
-          }
-        }
-      } catch (e) {
-        console.error(e);
-        stopPreview();
-      } finally {
-        previewBusy.current = false;
-      }
-    };
-    await tick();
-    const interval = (1000 / session.profile.fps) * session.profile.holdFrames;
-    previewTimer.current = window.setInterval(tick, Math.max(80, interval));
-  }, [session, stopPreview]);
+    const playout = new LoopingQrPlayout(session, {
+      onStatus: setPlayoutStatus,
+      onFrame: drawFrame,
+    });
+    playoutRef.current = playout;
+    await playout.start();
+  }, [session, stopPreview, drawFrame]);
 
   useEffect(() => () => stopPreview(), [stopPreview]);
+
+  useEffect(() => {
+    const onVis = () => {
+      // Resume wake lock when tab becomes visible again during playout
+      if (document.visibilityState === "visible" && playoutRef.current?.isRunning) {
+        /* wake lock re-acquired inside playout tick */
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   const doExport = useCallback(
     async (format: ExportFormat) => {
@@ -448,15 +452,30 @@ export default function App() {
             <p>{t.scanHelp}</p>
             <p className="hint">{t.loopHelp}</p>
             <p className="progress">
-              {t.loopStatus.replace("{n}", String(loopUi.index)).replace("{pct}", String(loopUi.pct))}
-              {info ? ` · ${info.loopFrameCount} QR / loop` : ""}
+              {playoutStatus?.phase === "preparing"
+                ? playoutStatus.message
+                : `${t.loopStatus.replace("{n}", String(loopUi.index)).replace("{pct}", String(loopUi.pct))}${
+                    info ? ` · ${info.loopFrameCount} QR / loop` : ""
+                  }`}
             </p>
+            {playoutStatus?.phase === "error" && (
+              <p className="hint" style={{ color: "#f87171" }}>
+                {playoutStatus.message}
+              </p>
+            )}
             <canvas ref={canvasRef} width={1920} height={1080} className="broadcast-canvas" />
             {previewUrl && <img src={previewUrl} alt="QR" className="qr-thumb" />}
             <p className="hint">{t.exportHint}</p>
             <div className="actions">
               <button type="button" className="ghost" onClick={stopPreview}>
                 {t.stopPreview}
+              </button>
+              <button
+                type="button"
+                disabled={busy || playoutStatus?.phase === "preparing"}
+                onClick={() => void startPreview()}
+              >
+                Restart loop
               </button>
               <button type="button" disabled={busy} onClick={() => doExport("webm")}>
                 {t.export}
