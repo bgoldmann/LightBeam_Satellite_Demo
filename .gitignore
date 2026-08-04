@@ -21,3 +21,4 @@ testdata/lightbeam-test-video/frames/
 testdata/decoded-from-video.bin
 .vercel
 .env.local
+file_example_*.mp4
