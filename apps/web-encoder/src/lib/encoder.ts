@@ -407,21 +407,28 @@ export class EncodeSession {
     const bottomBand = 28;
     const regionW = W - 2 * mx;
     const regionH = H - topBand - my - bottomBand;
-    const gap = qrs.length > 1 ? 28 : 16;
+    // Size tiles from the region, then pack them as a tight cluster (don't
+    // stretch 2×2 cells across 16:9 or the codes sit far apart horizontally).
+    const gap = qrs.length > 1 ? 12 : 0;
     const cellW = (regionW - gap * (cols - 1)) / cols;
     const cellH = (regionH - gap * (rows - 1)) / rows;
     const avail = Math.min(cellW, cellH);
-    const quiet = Math.max(12, Math.floor(avail * 0.04));
+    const quiet = Math.max(10, Math.floor(avail * 0.03));
     const qrSize = Math.max(64, Math.floor(avail - 2 * quiet));
+    const tile = qrSize + 2 * quiet;
+    const clusterW = cols * tile + (cols - 1) * gap;
+    const clusterH = rows * tile + (rows - 1) * gap;
+    const originX = mx + (regionW - clusterW) / 2;
+    const originY = topBand + (regionH - clusterH) / 2;
 
     for (let i = 0; i < qrs.length; i++) {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      const cx = mx + col * (cellW + gap) + (cellW - qrSize) / 2;
-      const cy = topBand + row * (cellH + gap) + (cellH - qrSize) / 2;
+      const padX = originX + col * (tile + gap);
+      const padY = originY + row * (tile + gap);
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(cx - quiet, cy - quiet, qrSize + quiet * 2, qrSize + quiet * 2);
-      paintQrModules(ctx, qrs[i], cx, cy, qrSize);
+      ctx.fillRect(padX, padY, tile, tile);
+      paintQrModules(ctx, qrs[i], padX + quiet, padY + quiet, qrSize);
     }
 
     ctx.fillStyle = "#1e293b";

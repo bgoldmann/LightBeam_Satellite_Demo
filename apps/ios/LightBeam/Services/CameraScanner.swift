@@ -243,8 +243,7 @@ extension CameraScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
         visionQueue.async { [weak self] in
             defer { self?.visionBusy = false }
             guard let self else { return }
-            var error: NSError?
-            let results = self.zxingReader.readCVPixelBuffer(pixelBuffer, error: &error) as? [ZXIResult] ?? []
+            let results = (try? self.zxingReader.read(pixelBuffer)) ?? []
             for result in results {
                 if result.bytes.count > 0 {
                     self.emitQRPayload(result.bytes)

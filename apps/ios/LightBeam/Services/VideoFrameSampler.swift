@@ -209,17 +209,15 @@ enum VideoFrameSampler {
     private static func extractQRs(from sample: CMSampleBuffer, width: Int, height: Int) async -> [Data] {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { return [] }
         let shortSide = min(width, height)
-        var error: NSError?
-        let raw: NSArray?
+        let results: [ZXIResult]
         if shortSide > 0, shortSide < 720 {
             let ci = CIImage(cvPixelBuffer: pixelBuffer)
             let scale = 720.0 / CGFloat(shortSide)
             let scaled = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            raw = zxingReader.read(scaled, error: &error)
+            results = (try? zxingReader.read(scaled)) ?? []
         } else {
-            raw = zxingReader.readCVPixelBuffer(pixelBuffer, error: &error)
+            results = (try? zxingReader.read(pixelBuffer)) ?? []
         }
-        let results = raw as? [ZXIResult] ?? []
         return results.compactMap { result in
             if result.bytes.count > 0 { return result.bytes }
             if !result.text.isEmpty { return Data(result.text.utf8) }
