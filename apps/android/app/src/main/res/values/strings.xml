@@ -31,6 +31,11 @@
     <string name="completion_title">Transfer complete</string>
     <string name="hash_verified">SHA-256 verified</string>
     <string name="hash_mismatch">SHA-256 mismatch</string>
+    <string name="trust_label">Publisher trust</string>
+    <string name="trust_verified">Verified publisher signature</string>
+    <string name="trust_unknown">Hash OK — unknown publisher key</string>
+    <string name="trust_failed">Signature verification failed</string>
+    <string name="trust_hash_only">Hash verified</string>
     <string name="save_file">Save file</string>
     <string name="file_saved">File saved</string>
     <string name="save_cancelled">Save cancelled</string>
@@ -56,7 +61,7 @@
     <string name="settings_language">Language follows system settings (English / Persian supported).</string>
     <string name="settings_wake_lock">Keep screen awake while scanning</string>
     <string name="about_version">Version %1$s</string>
-    <string name="about_signing_fingerprint">Signing certificate SHA-256 fingerprint (placeholder):\nAA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99</string>
+    <string name="about_signing_fingerprint">Demo publisher key ID: cf64d74ed0175771\nEd25519 public key (hex):\n2cad00fc5952f978eee1a9f55ba7e43c1d7ec11baa8f918feac025c0c728568f</string>
     <string name="about_cbor_note">Manifest CBOR parsing uses Jackson for web-encoder interop. Full parity will come from the shared Rust core.</string>
     <string name="demo_note_title">Bundled demo note</string>
     <string name="open_demo_note">View bundled demo note</string>

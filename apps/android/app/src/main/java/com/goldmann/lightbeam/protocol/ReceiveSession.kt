@@ -28,6 +28,7 @@ data class SessionSnapshot(
     val hashVerified: Boolean?,
     val payloadHash: String?,
     val recoveredBytes: ByteArray?,
+    val trustState: TrustState?,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -46,7 +47,8 @@ data class SessionSnapshot(
             statusMessage == other.statusMessage &&
             hashVerified == other.hashVerified &&
             payloadHash == other.payloadHash &&
-            recoveredBytes.contentEquals(other.recoveredBytes)
+            recoveredBytes.contentEquals(other.recoveredBytes) &&
+            trustState == other.trustState
     }
 
     override fun hashCode(): Int {
@@ -65,6 +67,7 @@ data class SessionSnapshot(
         result = 31 * result + (hashVerified?.hashCode() ?: 0)
         result = 31 * result + (payloadHash?.hashCode() ?: 0)
         result = 31 * result + (recoveredBytes?.contentHashCode() ?: 0)
+        result = 31 * result + (trustState?.hashCode() ?: 0)
         return result
     }
 }
@@ -78,6 +81,7 @@ class ReceiveSession {
     private var statusMessage: String? = null
     private var hashVerified: Boolean? = null
     private var recoveredBytes: ByteArray? = null
+    private var trustState: TrustState? = null
 
     fun reset() {
         lockedSessionId = null
@@ -88,6 +92,7 @@ class ReceiveSession {
         statusMessage = null
         hashVerified = null
         recoveredBytes = null
+        trustState = null
     }
 
     fun snapshot(): SessionSnapshot {
@@ -119,6 +124,7 @@ class ReceiveSession {
             hashVerified = hashVerified,
             payloadHash = man?.payloadHash ?: bec?.payloadHash,
             recoveredBytes = recoveredBytes,
+            trustState = trustState,
         )
     }
 
@@ -187,7 +193,9 @@ class ReceiveSession {
         if (blockCount <= 0 || blockSize <= 0) {
             return FrameResult.Corrupt("invalid block parameters")
         }
-        decoder = LtDecoder(blockCount, blockSize, encodedLen)
+        if (decoder == null) {
+            decoder = LtDecoder(blockCount, blockSize, encodedLen)
+        }
         phase = SessionPhase.Collecting
         statusMessage = null
         return FrameResult.Accepted
@@ -234,10 +242,13 @@ class ReceiveSession {
             val hash = sha256Hex(encodedBytes)
             val verified = payloadHash != null && hash.equals(payloadHash, ignoreCase = true)
             hashVerified = verified
-            var recovered = if (man?.compression == "deflate") {
-                inflateZlib(encodedBytes)
-            } else {
-                encodedBytes
+            var recovered = when (man?.compression) {
+                "deflate" -> inflateZlib(encodedBytes)
+                "zstd" -> {
+                    val expected = man.originalByteLength.toInt().coerceAtLeast(1)
+                    com.github.luben.zstd.Zstd.decompress(encodedBytes, expected)
+                }
+                else -> encodedBytes
             }
             val expectedLen = man?.originalByteLength?.toInt()
             if (expectedLen != null && expectedLen >= 0 && recovered.size != expectedLen) {
@@ -249,7 +260,20 @@ class ReceiveSession {
                     )
                 }
             }
+            val trust = PublisherTrust.evaluate(
+                man?.publisherKeyId,
+                man?.signatureBase64,
+                man?.unsignedFields ?: emptyMap(),
+            )
+            if (trust == TrustState.VerificationFailed) {
+                phase = SessionPhase.Failed
+                statusMessage = "Publisher signature verification failed"
+                hashVerified = verified
+                trustState = trust
+                return false
+            }
             recoveredBytes = recovered
+            trustState = trust
             phase = SessionPhase.Complete
             statusMessage = if (verified) "hash_ok" else "hash_mismatch"
             verified

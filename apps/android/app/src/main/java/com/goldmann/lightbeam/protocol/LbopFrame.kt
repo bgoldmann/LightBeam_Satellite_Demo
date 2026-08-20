@@ -94,7 +94,17 @@ data class ManifestInfo(
     val title: String,
     val sessionIdHex: String,
     val compression: String,
+    val publisherKeyId: String?,
+    val signatureBase64: String?,
+    val unsignedFields: Map<String, Any?>,
 )
+
+enum class TrustState {
+    Verified,
+    UnknownPublisher,
+    VerificationFailed,
+    HashOnly,
+}
 
 object LbopCodec {
     fun decodeFrame(data: ByteArray): LbopFrame {

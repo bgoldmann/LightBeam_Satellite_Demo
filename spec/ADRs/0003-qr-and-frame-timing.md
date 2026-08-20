@@ -25,7 +25,7 @@
 |---------|-----|------|--------------------|
 | Studio | 30 | 2 | 15 Hz |
 | Satellite Safe | 30 (25 playout variant) | 3 | 10 Hz |
-| Lab | 60 | 1 | 60 Hz |
+| Lab | 60 | 2 | 30 Hz (two-frame hold so phones can lock) |
 
 ## Measured targets to fill in field tests
 

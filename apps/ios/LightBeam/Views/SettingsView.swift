@@ -19,6 +19,16 @@ struct SettingsView: View {
             Section("settings.about") {
                 LabeledContent("settings.bundleId", value: "com.goldmannllc.LightBeam")
                 LabeledContent("settings.protocol", value: "LBOP/1")
+                LabeledContent(
+                    "settings.demoKeyId",
+                    value: NSLocalizedString("settings.demoKeyId.value", comment: "")
+                )
+                Text(NSLocalizedString("settings.demoPubKey", comment: ""))
+                    .font(.caption)
+                Text(NSLocalizedString("settings.demoPubKey.value", comment: ""))
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
 
             Section {

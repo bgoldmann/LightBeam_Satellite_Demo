@@ -28,7 +28,8 @@ export class LoopingQrPlayout {
   private buffer: string[] = [];
   private producing = false;
   private cycleLen = 1;
-  private prefetchTarget = 12;
+  private prefetchTarget = 36;
+  private nextDueAt = 0;
 
   constructor(
     session: EncodeSession,
@@ -47,6 +48,7 @@ export class LoopingQrPlayout {
     this.running = true;
     this.index = 0;
     this.buffer = [];
+    this.nextDueAt = 0;
     this.cycleLen = Math.max(
       1,
       this.session.loopFrameCount || this.session.info.loopFrameCount || 64,
@@ -139,10 +141,11 @@ export class LoopingQrPlayout {
             this.buffer.push(url);
           } catch (e) {
             console.warn("QR encode failed, retrying", e);
-            await new Promise((r) => setTimeout(r, 50));
+            await new Promise((r) => setTimeout(r, 20));
           }
         }
-        await new Promise((r) => setTimeout(r, 16));
+        const low = this.buffer.length < Math.ceil(this.prefetchTarget / 3);
+        await new Promise((r) => setTimeout(r, low ? 0 : 8));
       }
     } finally {
       this.producing = false;
@@ -195,7 +198,12 @@ export class LoopingQrPlayout {
 
     const holdMs =
       (1000 / Math.max(1, this.session.profile.fps)) * Math.max(1, this.session.profile.holdFrames);
-    this.scheduleNext(Math.max(120, holdMs));
+    const now = performance.now();
+    if (this.nextDueAt === 0) this.nextDueAt = now + holdMs;
+    else this.nextDueAt += holdMs;
+    // If encode/draw fell behind, skip catch-up delay so the phone sees a new symbol ASAP.
+    if (this.nextDueAt < now - holdMs) this.nextDueAt = now;
+    this.scheduleNext(Math.max(0, this.nextDueAt - now));
   }
 
   private async acquireWakeLock(): Promise<void> {

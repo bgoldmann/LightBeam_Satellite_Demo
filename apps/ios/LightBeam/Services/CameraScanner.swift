@@ -96,7 +96,13 @@ final class CameraScanner: NSObject, ObservableObject {
     private func configureIfNeeded() {
         guard !isConfigured else { return }
         session.beginConfiguration()
-        session.sessionPreset = .high
+        if session.canSetSessionPreset(.hd1920x1080) {
+            session.sessionPreset = .hd1920x1080
+        } else if session.canSetSessionPreset(.hd1280x720) {
+            session.sessionPreset = .hd1280x720
+        } else {
+            session.sessionPreset = .high
+        }
 
         guard
             let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
@@ -135,7 +141,7 @@ final class CameraScanner: NSObject, ObservableObject {
         let meta = AVCaptureMetadataOutput()
         if session.canAddOutput(meta) {
             session.addOutput(meta)
-            meta.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+            meta.setMetadataObjectsDelegate(self, queue: sessionQueue)
             if meta.availableMetadataObjectTypes.contains(.qr) {
                 meta.metadataObjectTypes = [.qr]
             }
@@ -167,19 +173,27 @@ final class CameraScanner: NSObject, ObservableObject {
     }
 
     private func emitQR(_ raw: String) {
+        sessionQueue.async { [weak self] in
+            self?.emitQRLocked(raw)
+        }
+    }
+
+    private func emitQRLocked(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        // Deduplicate identical payloads within 80ms (metadata fires very often)
         let now = CFAbsoluteTimeGetCurrent()
-        if text == lastEmitted && (now - lastEmitTime) < 0.08 {
+        if text == lastEmitted && (now - lastEmitTime) < 0.025 {
             return
         }
         lastEmitted = text
         lastEmitTime = now
 
-        qrHitCount += 1
-        lastPayloadLength = text.count
+        let length = text.count
+        DispatchQueue.main.async { [weak self] in
+            self?.qrHitCount += 1
+            self?.lastPayloadLength = length
+        }
         onQRDetected?(text)
     }
 }
@@ -209,7 +223,7 @@ extension CameraScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
     ) {
         // Throttle Vision — metadata path is primary
         let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastVisionTime >= 0.12, !visionBusy else { return }
+        guard now - lastVisionTime >= 0.04, !visionBusy else { return }
         lastVisionTime = now
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 

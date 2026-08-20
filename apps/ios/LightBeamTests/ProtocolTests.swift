@@ -70,6 +70,49 @@ final class ProtocolTests: XCTestCase {
         XCTAssertTrue(MediaTypes.isVideo(mime: "video/mp4", filename: "x.bin"))
     }
 
+    func testZstdDecompressionRoundtrip() throws {
+        // Standard zstd frame from `zstd` crate (matches web ACE / Android zstd-jni).
+        let compressed = Data(base64Encoded: "KLUv/SAgAQEATGlnaHRCZWFtIHpzdGQgQUNFIHRlc3QgcGF5bG9hZCA=")!
+        let decompressed = try PayloadProcessor.decompressIfNeeded(compressed, compression: "zstd")
+        XCTAssertEqual(String(data: decompressed, encoding: .utf8), "LightBeam zstd ACE test payload ")
+    }
+
+    func testPublisherTrustDemoAllowlist() {
+        let unsigned: [String: Any] = [
+            "protocol_version": 1,
+            "title": "t",
+            "signature": NSNull(),
+        ]
+        XCTAssertEqual(
+            PublisherTrust.evaluate(publisherKeyId: nil, signatureBase64: nil, unsignedManifest: unsigned),
+            .unknownPublisher
+        )
+        XCTAssertEqual(
+            PublisherTrust.evaluate(
+                publisherKeyId: "cf64d74ed0175771",
+                signatureBase64: "AAAA",
+                unsignedManifest: unsigned
+            ),
+            .verificationFailed
+        )
+        XCTAssertEqual(
+            PublisherTrust.evaluate(
+                publisherKeyId: "deadbeefdeadbeef",
+                signatureBase64: "AAAA",
+                unsignedManifest: unsigned
+            ),
+            .unknownPublisher
+        )
+    }
+
+    func testCanonicalCborNullAndSortedKeys() {
+        let a = CanonicalCbor.encode(["b": 1, "a": NSNull()] as [String: Any])
+        let b = CanonicalCbor.encode(["a": NSNull(), "b": 1] as [String: Any])
+        XCTAssertEqual(a, b)
+        // map(2) + "a" + null + "b" + 1
+        XCTAssertEqual(a.first, 0xA2)
+    }
+
     private func loadGoldenFrames() throws -> [String] {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

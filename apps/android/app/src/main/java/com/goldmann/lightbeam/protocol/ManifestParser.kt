@@ -59,6 +59,11 @@ object ManifestParser {
         val rawMime = str("mime_type", "application/octet-stream").ifBlank { "application/octet-stream" }
         val mime = MediaTypes.resolveMime(rawName, rawMime)
         val filename = MediaTypes.ensureFilenameExtension(rawName, mime)
+        val fields = LinkedHashMap<String, Any?>()
+        for ((k, v) in map) {
+            fields[k.toString()] = normalizeJson(v)
+        }
+        fields["signature"] = null
         return ManifestInfo(
             filename = filename,
             mimeType = mime,
@@ -71,6 +76,18 @@ object ManifestParser {
             title = str("title"),
             sessionIdHex = str("session_id"),
             compression = str("compression", "none"),
+            publisherKeyId = str("publisher_key_id").ifBlank { null },
+            signatureBase64 = str("signature").ifBlank { null },
+            unsignedFields = fields,
         )
+    }
+
+    private fun normalizeJson(v: Any?): Any? = when (v) {
+        null -> null
+        is Number, is String, is Boolean -> v
+        is ByteArray -> android.util.Base64.encodeToString(v, android.util.Base64.NO_WRAP)
+        is Map<*, *> -> v.entries.associate { it.key.toString() to normalizeJson(it.value) }
+        is List<*> -> v.map { normalizeJson(it) }
+        else -> v.toString()
     }
 }

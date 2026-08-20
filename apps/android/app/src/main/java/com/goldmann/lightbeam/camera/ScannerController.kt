@@ -47,7 +47,7 @@ class ScannerController(
                 it.surfaceProvider = previewView.surfaceProvider
             }
             val analysis = ImageAnalysis.Builder()
-                .setTargetResolution(Size(1280, 720))
+                .setTargetResolution(Size(1920, 1080))
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
             analysis.setAnalyzer(executor) { imageProxy ->
@@ -97,7 +97,10 @@ class ScannerController(
         val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
         scanner.process(image)
             .addOnSuccessListener { barcodes ->
-                barcodes.firstOrNull()?.rawValue?.let(onQrDetected)
+                val best = barcodes.maxByOrNull { barcode ->
+                    barcode.boundingBox?.let { it.width() * it.height() } ?: 0
+                }
+                best?.rawValue?.let(onQrDetected)
             }
             .addOnCompleteListener {
                 processing.set(false)

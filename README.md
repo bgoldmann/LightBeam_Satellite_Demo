@@ -2,7 +2,7 @@
 
 Offline optical file delivery for satellite television. The television picture is the transport.
 
-See [LightBeam_Phase_1_Satellite_Demo_PRD.md](./LightBeam_Phase_1_Satellite_Demo_PRD.md) and [spec/LBOP-1.md](./spec/LBOP-1.md).
+See [LightBeam_Phase_1_Satellite_Demo_PRD.md](./LightBeam_Phase_1_Satellite_Demo_PRD.md), [spec/LBOP-1.md](./spec/LBOP-1.md) (Phase 1 freeze), and architecture draft [spec/drafts/LBOP-000.md](./spec/drafts/LBOP-000.md).
 
 ## Workspace
 
@@ -11,7 +11,7 @@ apps/web-encoder   Vite + React encoder (local-only processing)
 apps/android       Kotlin + Compose receiver (no INTERNET permission)
 apps/ios           Swift + SwiftUI receiver
 crates/            Shared Rust LBOP/1 core + FEC + crypto
-spec/              Protocol spec, ADRs, golden test vectors
+spec/              Protocol freeze, drafts (LBOP-000…006), ADRs, golden vectors
 tools/             Test vector generator, broadcast validator
 docs/              Operator, broadcast, Android, iOS guides
 ```

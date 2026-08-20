@@ -3,11 +3,25 @@
 **Status:** Alpha freeze for Phase 1 demo  
 **Date:** 2026-08-04
 
+This file is the **Phase 1 freeze pointer**. Normative content is maintained in the LBOP-00x drafts (split from this document). Implementations MUST remain interoperable with the rules summarized below and detailed in the drafts.
+
+## Document map
+
+| Topic | Draft |
+|-------|-------|
+| Architecture | [drafts/LBOP-000.md](./drafts/LBOP-000.md) |
+| Wire format / frames / fountain | [drafts/LBOP-001-wire-format.md](./drafts/LBOP-001-wire-format.md) |
+| LBPK package / manifest / ACE labels | [drafts/LBOP-002-package.md](./drafts/LBOP-002-package.md) |
+| QR & optical timing | [drafts/LBOP-003-optical-frames.md](./drafts/LBOP-003-optical-frames.md) |
+| Broadcast profiles A–D | [drafts/LBOP-004-profiles.md](./drafts/LBOP-004-profiles.md) |
+| Security & trust | [drafts/LBOP-005-security.md](./drafts/LBOP-005-security.md) |
+| SDK outline | [drafts/LBOP-006-sdk.md](./drafts/LBOP-006-sdk.md) |
+
 ## 1. Package layers
 
 ```text
 Original file
-  → optional Deflate (Phase 1) / Zstd (Rust path)
+  → ACE: none | zstd | deflate
   → optional Argon2id + XChaCha20-Poly1305
   → SHA-256 payload hash
   → canonical CBOR manifest + Ed25519 signature
@@ -18,105 +32,21 @@ Original file
   → broadcast video
 ```
 
-## 2. Session identity
+## 2–7. Normative details
 
-| Field | Size | Notes |
-|-------|------|-------|
-| Session ID | 16 bytes | CSPRNG |
-| Short code | 8 chars | Derived from first 8 bytes, alphabet `A–Z` without `I/O` + `2–9` |
-| Package ID | string | `pkg_` + first 16 hex of payload hash |
-| Protocol version | 1 | `PROTOCOL_VERSION = 1` |
+See LBOP-001 (wire), LBOP-002 (manifest), LBOP-003 (QR), LBOP-004 (profiles), LBOP-005 (trust).
 
-## 3. Frame envelope (binary, big-endian)
+### Quick reference — frame envelope
 
-| Offset | Size | Field |
-|--------|------|-------|
-| 0 | 4 | Magic `LBOP` |
-| 4 | 1 | Protocol version |
-| 5 | 1 | Frame type |
-| 6 | 2 | Flags |
-| 8 | 16 | Session ID |
-| 24 | 8 | Symbol / tick ID |
-| 32 | 2 | Payload length |
-| 34 | 4 | Header CRC-32 (IEEE) over bytes 0–33 |
-| 38 | N | Payload |
-| 38+N | 4 | Frame CRC-32 over bytes 0..(38+N-1) |
+Magic `LBOP`; version; type; flags; 16-byte session; u64 symbol id; u16 payload length; header CRC32; payload; frame CRC32. Types: Beacon `0x01`, Manifest `0x02`, Data `0x03`, EndLoop `0x04`.
 
-### Frame types
+### Quick reference — compression
 
-| Value | Name | Payload |
-|-------|------|---------|
-| 0x01 | Beacon | UTF-8 JSON (`BeaconPayload`) |
-| 0x02 | Manifest | CBOR `Manifest` (includes signature field) |
-| 0x03 | Data | `DataPayload` binary |
-| 0x04 | EndLoop | optional marker |
+`compression`: `none` | `deflate` | `zstd`.
 
-### DataPayload
+### Quick reference — profiles
 
-| Field | Size |
-|-------|------|
-| degree | u16 BE |
-| neighbor count | u16 BE |
-| neighbors | u16 BE × count |
-| symbol bytes | remainder (block_size) |
-
-### Beacon JSON
-
-```json
-{
-  "title": "string",
-  "profile": "satellite_safe",
-  "block_count": 1,
-  "block_size": 192,
-  "original_len": 1,
-  "payload_hash": "hex",
-  "short_code": "ABCD2345"
-}
-```
-
-## 4. Manifest (CBOR map)
-
-Required keys (snake_case):
-
-- `protocol_version`, `session_id`, `package_id`
-- `filename`, `mime_type`
-- `original_byte_length`, `encoded_byte_length`
-- `creation_timestamp`, `expiration_timestamp` (nullable)
-- `compression` (`none` | `deflate` | `zstd`)
-- `encryption` (`none` | `xchacha20_poly1305`)
-- `hash_algorithm` (`sha256`)
-- `payload_hash`, `publisher_key_id`
-- `title`, `language`, `content_classification`
-- `block_size`, `block_count`
-- `description`, `publisher_name`
-- `signature` (Base64 Ed25519 over canonical CBOR with `signature` null)
-- encryption params when used: `salt_hex` (`salt:nonce` hex), Argon2 params
-
-**Signing:** serialize unsigned manifest (signature = null) with deterministic CBOR; Ed25519-sign those bytes; store Base64 signature in `signature`.
-
-## 5. Fountain coding
-
-- Block size profile-dependent (default Satellite Safe: 192).
-- Degree ~ robust soliton; neighbors listed on wire.
-- Receiver peels when enough unique data symbols arrive; loop boundaries irrelevant.
-- Interleave: every 8 ticks emit Beacon, then Manifest, then 6 Data.
-
-## 6. QR mapping
-
-- Encode frame bytes as Base64 (standard alphabet).
-- One QR per logical symbol; ECC Medium for satellite-safe.
-- Hold duration per profile (see ADR 0003).
-
-## 7. Trust states (receivers)
-
-| State | Meaning |
-|-------|---------|
-| Verified | Hash matches and Ed25519 verifies against embedded trusted key |
-| Unknown publisher | Hash OK, key not in allowlist |
-| Verification failed | Hash or signature failure |
-| Encrypted | Password required after integrity OK |
-
-Unsigned packages are rejected in production mode.
+`lab` (A), `studio` (B), `satellite_safe` (C), `archive` (D).
 
 ## 8. Test vectors
 

@@ -52,6 +52,12 @@
 "completion.open" = "Open / Preview";
 "completion.saveAs" = "Save with original name";
 "completion.type" = "Type";
+"completion.trust" = "Publisher trust";
+"trust.verified" = "Verified publisher signature";
+"trust.unknownPublisher" = "Hash OK — unknown publisher key";
+"trust.verificationFailed" = "Signature verification failed";
+"trust.hashOnly" = "Hash verified";
+"error.signatureFailed" = "Publisher signature verification failed.";
 
 "files.empty.title" = "No recovered files yet";
 "files.empty.subtitle" = "Scan a LightBeam broadcast or decode a video to save files here.";
@@ -65,7 +71,11 @@
 "safety.intro" = "Always verify optical transfers before trusting recovered content.";
 "safety.verifyHash" = "Compare the payload SHA-256 hash with the publisher manifest when available.";
 "safety.offline" = "Decoding happens entirely on device; no data is uploaded.";
-"safety.publisher" = "Manifest signatures (Ed25519) can be verified in future releases.";
+"safety.publisher" = "Manifest Ed25519 signatures are verified against the demo publisher allowlist when the key id is known.";
+"settings.demoKeyId" = "Demo publisher key ID";
+"settings.demoKeyId.value" = "cf64d74ed0175771";
+"settings.demoPubKey" = "Demo Ed25519 public key";
+"settings.demoPubKey.value" = "2cad00fc5952f978eee1a9f55ba7e43c1d7ec11baa8f918feac025c0c728568f";
 "safety.demo" = "Use demo content only until publisher keys are pinned for production.";
 
 "settings.language" = "Language";

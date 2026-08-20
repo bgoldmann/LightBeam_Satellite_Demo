@@ -41,6 +41,7 @@ struct SessionDecodeResult: Equatable {
     let payloadHash: String
     let fileData: Data
     let shortCode: String?
+    let trustState: TrustState
 }
 
 /// Orchestrates LBOP frame ingestion → LT decode → hash verify → decompress.
@@ -291,6 +292,16 @@ final class SessionDecoder: ObservableObject {
                 mimeHint: localManifest?.mimeType
             )
             let filename = MediaTypes.ensureFilenameExtension(filename: rawName, mime: mime)
+            let trust = PublisherTrust.evaluate(
+                publisherKeyId: localManifest?.publisherKeyId,
+                signatureBase64: localManifest?.signatureBase64,
+                unsignedManifest: localManifest?.unsignedFields ?? [:]
+            )
+            if trust == .verificationFailed {
+                lastError = NSLocalizedString("error.signatureFailed", comment: "")
+                stage = .failed
+                return nil
+            }
             let result = SessionDecodeResult(
                 filename: filename,
                 title: localManifest?.title ?? localBeacon?.title ?? "Untitled",
@@ -298,7 +309,8 @@ final class SessionDecoder: ObservableObject {
                 mimeType: mime,
                 payloadHash: actualHash,
                 fileData: finalData,
-                shortCode: localShort
+                shortCode: localShort,
+                trustState: trust
             )
             stage = .complete
             progress = 1

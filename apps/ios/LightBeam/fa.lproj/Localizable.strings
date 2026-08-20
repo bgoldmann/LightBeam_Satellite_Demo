@@ -52,6 +52,12 @@
 "completion.open" = "باز کردن / پیش‌نمایش";
 "completion.saveAs" = "ذخیره با نام اصلی";
 "completion.type" = "نوع";
+"completion.trust" = "اعتماد ناشر";
+"trust.verified" = "امضای ناشر تأیید شد";
+"trust.unknownPublisher" = "هش صحیح — کلید ناشر ناشناس";
+"trust.verificationFailed" = "تأیید امضا ناموفق";
+"trust.hashOnly" = "هش تأیید شد";
+"error.signatureFailed" = "تأیید امضای ناشر ناموفق بود.";
 
 "files.empty.title" = "هنوز فایلی بازیابی نشده";
 "files.empty.subtitle" = "یک پخش LightBeam را اسکن کنید یا ویدیو را رمزگشایی کنید.";
@@ -65,7 +71,11 @@
 "safety.intro" = "قبل از اعتماد به محتوای بازیابی‌شده، انتقال نوری را تأیید کنید.";
 "safety.verifyHash" = "هش SHA-256 payload را با مانیفست ناشر مقایسه کنید.";
 "safety.offline" = "رمزگشایی کاملاً روی دستگاه انجام می‌شود؛ داده‌ای ارسال نمی‌شود.";
-"safety.publisher" = "امضای مانیفست (Ed25519) در نسخه‌های بعدی قابل تأیید است.";
+"safety.publisher" = "امضای Ed25519 مانیفست در برابر فهرست کلیدهای ناشر دمو تأیید می‌شود.";
+"settings.demoKeyId" = "شناسه کلید ناشر دمو";
+"settings.demoKeyId.value" = "cf64d74ed0175771";
+"settings.demoPubKey" = "کلید عمومی Ed25519 دمو";
+"settings.demoPubKey.value" = "2cad00fc5952f978eee1a9f55ba7e43c1d7ec11baa8f918feac025c0c728568f";
 "safety.demo" = "تا زمان سنجاق کلید ناشر، فقط محتوای دمو استفاده کنید.";
 
 "settings.language" = "زبان";

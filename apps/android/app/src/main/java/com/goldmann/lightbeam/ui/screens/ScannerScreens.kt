@@ -42,6 +42,7 @@ import com.goldmann.lightbeam.camera.ScannerController
 import com.goldmann.lightbeam.protocol.MediaTypes
 import com.goldmann.lightbeam.protocol.SessionPhase
 import com.goldmann.lightbeam.protocol.SessionSnapshot
+import com.goldmann.lightbeam.protocol.TrustState
 import com.goldmann.lightbeam.ui.SessionProgress
 
 @Composable
@@ -277,6 +278,15 @@ fun CompletionScreen(
             else stringResource(R.string.hash_mismatch),
             color = if (snapshot.hashVerified == true) Color(0xFF5EEAD4) else Color(0xFFF87171),
         )
+        snapshot.trustState?.let { trust ->
+            val (label, color) = when (trust) {
+                TrustState.Verified -> stringResource(R.string.trust_verified) to Color(0xFF5EEAD4)
+                TrustState.UnknownPublisher -> stringResource(R.string.trust_unknown) to Color(0xFFFBBF24)
+                TrustState.HashOnly -> stringResource(R.string.trust_hash_only) to Color(0xFF5EEAD4)
+                TrustState.VerificationFailed -> stringResource(R.string.trust_failed) to Color(0xFFF87171)
+            }
+            Text(stringResource(R.string.trust_label) + ": $label", color = color)
+        }
         Button(
             onClick = { createDoc.launch(saveName) },
             modifier = Modifier.fillMaxWidth(),

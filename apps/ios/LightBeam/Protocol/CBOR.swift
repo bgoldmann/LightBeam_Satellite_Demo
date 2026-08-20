@@ -133,4 +133,26 @@ enum CBOR {
         guard case .int(let value)? = map[key] else { return nil }
         return value
     }
+
+    /// Convert decoded CBOR map to JSON-compatible objects for canonical re-encode.
+    static func jsonObject(_ map: [String: CBORValue]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        for (k, v) in map {
+            out[k] = jsonValue(v)
+        }
+        return out
+    }
+
+    private static func jsonValue(_ value: CBORValue) -> Any {
+        switch value {
+        case .text(let s): return s
+        case .int(let i): return i
+        case .bool(let b): return b
+        case .null: return NSNull()
+        case .bytes(let d): return d.base64EncodedString()
+        case .array(let items): return items.map { jsonValue($0) }
+        case .map(let m): return jsonObject(m)
+        case .unknown: return NSNull()
+        }
+    }
 }

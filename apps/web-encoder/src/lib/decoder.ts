@@ -1,4 +1,3 @@
-import { inflate } from "pako";
 import { decode as cborDecode } from "cbor-x";
 import { LtDecoder } from "./fec";
 import {
@@ -7,6 +6,7 @@ import {
   FrameType,
   sha256Hex,
 } from "./protocol";
+import { decompressPayloadAsync } from "./ace";
 
 export type DecodeStage =
   | "Searching"
@@ -89,9 +89,11 @@ export class BrowserDecodeSession {
     if (!hashOk) {
       throw new Error(`payload hash mismatch: got ${hash}, expected ${this.manifest.payload_hash}`);
     }
-    if (this.manifest.compression === "deflate") {
-      // zlib-wrapped — matches encoder pako.deflate() and Rust flate2
-      payload = inflate(payload);
+    if (this.manifest.compression && this.manifest.compression !== "none") {
+      payload = await decompressPayloadAsync(
+        payload,
+        String(this.manifest.compression),
+      );
     }
     const expectedLen = Number(this.manifest.original_byte_length);
     if (Number.isFinite(expectedLen) && payload.length !== expectedLen) {

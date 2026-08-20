@@ -510,12 +510,19 @@ impl DecodeSession {
         }
 
         // Decompress
-        if matches!(manifest.compression, CompressionAlg::Deflate) {
-            let mut dec = DeflateDecoder::new(&payload[..]);
-            let mut out = Vec::new();
-            dec.read_to_end(&mut out)
-                .map_err(|_| CoreError::Compression)?;
-            payload = out;
+        match manifest.compression {
+            CompressionAlg::Deflate => {
+                let mut dec = DeflateDecoder::new(&payload[..]);
+                let mut out = Vec::new();
+                dec.read_to_end(&mut out)
+                    .map_err(|_| CoreError::Compression)?;
+                payload = out;
+            }
+            CompressionAlg::Zstd => {
+                payload = zstd::stream::decode_all(&payload[..])
+                    .map_err(|_| CoreError::Compression)?;
+            }
+            CompressionAlg::None => {}
         }
 
         if payload.len() as u64 != manifest.original_byte_length {

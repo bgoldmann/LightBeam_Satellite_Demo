@@ -1,5 +1,4 @@
 /** Encode session: package file → LBOP frames → QR. */
-import { deflate } from "pako";
 import { encode as cborEncode } from "cbor-x";
 import { getPublicKeyAsync, hashes, signAsync } from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha2.js";
@@ -16,14 +15,18 @@ import {
   toHex,
 } from "./protocol";
 import { ensureFilenameExtension, resolveMimeType } from "./mediaTypes";
+import { selectCompression, type CompressionAlg } from "./ace";
+import { canonicalCborEncode } from "./canonicalCbor";
 import QRCode from "qrcode";
 
 hashes.sha512 = sha512;
 
-export type ProfileId = "studio" | "satellite_safe" | "lab";
+/** Profile code ids + letter aliases (LBOP-004). */
+export type ProfileId = "studio" | "satellite_safe" | "lab" | "archive";
 
 export interface BroadcastProfile {
   id: ProfileId;
+  letter: "A" | "B" | "C" | "D";
   label: string;
   fps: number;
   holdFrames: number;
@@ -35,9 +38,22 @@ export interface BroadcastProfile {
 }
 
 export const PROFILES: Record<ProfileId, BroadcastProfile> = {
+  lab: {
+    id: "lab",
+    letter: "A",
+    label: "A — Ultra Fast (Lab)",
+    fps: 60,
+    holdFrames: 2,
+    blockSize: 512,
+    redundancy: 0.25,
+    qrEcc: "L",
+    maxFileMb: 25,
+    description: "Maximum phone-camera rate: 30 unique QR/s on a 60 Hz display",
+  },
   studio: {
     id: "studio",
-    label: "Studio Demo / Maximum Reliability",
+    letter: "B",
+    label: "B — Balanced (Studio)",
     fps: 30,
     holdFrames: 2,
     blockSize: 256,
@@ -48,7 +64,8 @@ export const PROFILES: Record<ProfileId, BroadcastProfile> = {
   },
   satellite_safe: {
     id: "satellite_safe",
-    label: "Satellite Safe",
+    letter: "C",
+    label: "C — Satellite Safe",
     fps: 30,
     holdFrames: 3,
     blockSize: 192,
@@ -57,18 +74,40 @@ export const PROFILES: Record<ProfileId, BroadcastProfile> = {
     maxFileMb: 5,
     description: "Lower density, extra redundancy for broadcast chains",
   },
-  lab: {
-    id: "lab",
-    label: "Lab High Speed",
-    fps: 60,
-    holdFrames: 1,
-    blockSize: 512,
-    redundancy: 0.25,
-    qrEcc: "L",
-    maxFileMb: 25,
-    description: "Not for first on-air demo until validated",
+  archive: {
+    id: "archive",
+    letter: "D",
+    label: "D — Archive",
+    fps: 25,
+    holdFrames: 4,
+    blockSize: 160,
+    redundancy: 1.0,
+    qrEcc: "M",
+    maxFileMb: 5,
+    description: "Conservative rate and higher redundancy for difficult channels",
   },
 };
+
+const PROFILE_ALIASES: Record<string, ProfileId> = {
+  A: "lab",
+  a: "lab",
+  ultra_fast: "lab",
+  lab: "lab",
+  B: "studio",
+  b: "studio",
+  balanced: "studio",
+  studio: "studio",
+  C: "satellite_safe",
+  c: "satellite_safe",
+  satellite_safe: "satellite_safe",
+  D: "archive",
+  d: "archive",
+  archive: "archive",
+};
+
+export function resolveProfileId(input: string): ProfileId {
+  return PROFILE_ALIASES[input.trim()] ?? "satellite_safe";
+}
 
 export interface EncodeOptions {
   title: string;
@@ -79,7 +118,7 @@ export interface EncodeOptions {
   description?: string;
   compress: boolean;
   password?: string;
-  profile: ProfileId;
+  profile: ProfileId | string;
   signingSeed?: Uint8Array;
 }
 
@@ -113,7 +152,7 @@ export class EncodeSession {
   private encoder!: LtEncoder;
   private manifestCbor!: Uint8Array;
   private beaconJson!: Uint8Array;
-  private beaconInterval = 8;
+  private beaconInterval = 12;
   profile: BroadcastProfile;
 
   private constructor(profile: BroadcastProfile) {
@@ -121,21 +160,26 @@ export class EncodeSession {
   }
 
   static async create(fileBytes: Uint8Array, opts: EncodeOptions): Promise<EncodeSession> {
-    const profile = PROFILES[opts.profile];
+    const profile = PROFILES[resolveProfileId(opts.profile)];
     const session = new EncodeSession(profile);
     const mimeType = resolveMimeType(opts.filename, opts.mimeType);
     const filename = ensureFilenameExtension(sanitizeFilename(opts.filename), mimeType);
-    let payload = fileBytes;
-    let compression: "none" | "deflate" = "none";
-    if (opts.compress) {
-      const compressed = deflate(fileBytes);
-      if (compressed.length < fileBytes.length) {
-        payload = compressed;
-        compression = "deflate";
-      }
-    }
 
-    const seed = opts.signingSeed ?? crypto.getRandomValues(new Uint8Array(32));
+    const selected = await selectCompression(fileBytes, {
+      filename,
+      mimeType,
+      enabled: opts.compress,
+    });
+    const payload = selected.bytes;
+    const compression: CompressionAlg = selected.algorithm;
+
+    const seed =
+      opts.signingSeed ??
+      (() => {
+        const s = new Uint8Array(32);
+        new TextEncoder().encodeInto("LightBeamDemoSeed_v1", s);
+        return s;
+      })();
     const privateKey = seed;
     const publicKey = await getPublicKeyAsync(privateKey);
     const publisherKeyId = (await sha256Hex(publicKey)).slice(0, 16);
@@ -175,15 +219,16 @@ export class EncodeSession {
       argon2_parallelism: null,
     };
 
-    // Sign over CBOR without signature (cbor-x encode of unsigned)
-    const unsignedCbor = cborEncode(manifest);
+    // Sign over deterministic CBOR without signature (sorted keys)
+    const unsignedCbor = canonicalCborEncode(manifest);
     const signature = await signAsync(unsignedCbor, privateKey);
     manifest.signature = bytesToBase64(signature);
     const manifestCbor = cborEncode(manifest);
 
     const beacon = {
       title: opts.title,
-      profile: opts.profile,
+      profile: profile.id,
+      profile_letter: profile.letter,
       block_count: blockCount,
       block_size: blockSize,
       original_len: fileBytes.length,
@@ -193,8 +238,7 @@ export class EncodeSession {
 
     const estimatedSymbols = Math.ceil(blockCount * (1 + profile.redundancy));
     const symbolsPerSec = profile.fps / profile.holdFrames;
-    // ~75% of frames are data
-    const dataRatio = 6 / 8;
+    const dataRatio = (session.beaconInterval - 2) / session.beaconInterval;
     const estimatedRuntimeSec = Math.ceil(estimatedSymbols / (symbolsPerSec * dataRatio));
     // One broadcast loop = enough fountain symbols for recovery (+10% headroom)
     const loopFrameCount = Math.max(Math.ceil(estimatedSymbols * 1.1), blockCount + 16);
@@ -297,8 +341,8 @@ export class EncodeSession {
     const b64 = bytesToBase64(bytes);
     return QRCode.toDataURL(b64, {
       errorCorrectionLevel: this.profile.qrEcc,
-      margin: 2,
-      width: 720,
+      margin: 1,
+      width: 400,
       color: { dark: "#000000", light: "#ffffff" },
     });
   }
@@ -334,7 +378,7 @@ export class EncodeSession {
     ctx.fillText("برای دریافت فایل، دوربین را روبه‌روی تصویر نگه دارید", mx, my + 190);
 
     // Alignment border + QR in center safe zone
-    const qrSize = Math.min(W, H) * 0.55;
+    const qrSize = Math.min(W, H) * 0.68;
     const qx = (W - qrSize) / 2;
     const qy = (H - qrSize) / 2 + 40;
     ctx.strokeStyle = "#5eead4";

@@ -31,6 +31,11 @@
     <string name="completion_title">انتقال کامل شد</string>
     <string name="hash_verified">SHA-256 تأیید شد</string>
     <string name="hash_mismatch">عدم تطابق SHA-256</string>
+    <string name="trust_label">اعتماد ناشر</string>
+    <string name="trust_verified">امضای ناشر تأیید شد</string>
+    <string name="trust_unknown">هش صحیح — کلید ناشر ناشناس</string>
+    <string name="trust_failed">تأیید امضا ناموفق</string>
+    <string name="trust_hash_only">هش تأیید شد</string>
     <string name="save_file">ذخیره فایل</string>
     <string name="file_saved">فایل ذخیره شد</string>
     <string name="save_cancelled">ذخیره لغو شد</string>
@@ -56,7 +61,7 @@
     <string name="settings_language">زبان از تنظیمات سیستم پیروی می‌کند (انگلیسی / فارسی).</string>
     <string name="settings_wake_lock">صفحه در حین اسکن روشن بماند</string>
     <string name="about_version">نسخه %1$s</string>
-    <string name="about_signing_fingerprint">اثر انگشت SHA-256 گواهی امضا (موقت):\nAA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99</string>
+    <string name="about_signing_fingerprint">شناسه کلید ناشر دمو: cf64d74ed0175771\nکلید عمومی Ed25519 (hex):\n2cad00fc5952f978eee1a9f55ba7e43c1d7ec11baa8f918feac025c0c728568f</string>
     <string name="about_cbor_note">تجزیه CBOR مانیفست با Jackson برای سازگاری با انکودر وب. هم‌ترازی کامل از هسته Rust مشترک خواهد آمد.</string>
     <string name="demo_note_title">یادداشت دمو</string>
     <string name="open_demo_note">مشاهده یادداشت دمو</string>

@@ -94,7 +94,7 @@ export default function App() {
   const [publisher, setPublisher] = useState("Goldmann LLC Demo");
   const [description, setDescription] = useState("");
   const [compress, setCompress] = useState(true);
-  const [profile, setProfile] = useState<ProfileId>("satellite_safe");
+  const [profile, setProfile] = useState<ProfileId>("lab");
   const [loops, setLoops] = useState(5);
   const [session, setSession] = useState<EncodeSession | null>(null);
   const [info, setInfo] = useState<SessionInfo | null>(null);

@@ -46,6 +46,7 @@ struct CompletionView: View {
                         )
                         detailRow("completion.hash", String(result.payloadHash.prefix(16)) + "…")
                         detailRow("completion.type", mime)
+                        detailRow("completion.trust", trustLabel(result.trustState))
                     }
 
                     if MediaTypes.isImage(mime: mime, filename: result.filename),
@@ -151,6 +152,10 @@ struct CompletionView: View {
                 }
             }
         }
+    }
+
+    private func trustLabel(_ state: TrustState) -> String {
+        NSLocalizedString("trust.\(state.rawValue)", comment: "")
     }
 
     private func detailRow(_ key: LocalizedStringKey, _ value: String) -> some View {
