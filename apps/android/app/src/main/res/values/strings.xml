@@ -46,7 +46,7 @@
     <string name="payload_hash_label">Payload hash</string>
     <string name="camera_permission_required">Camera permission is required to scan optical frames.</string>
     <string name="grant_camera">Grant camera access</string>
-    <string name="alignment_guide">Align the QR code inside the frame</string>
+    <string name="alignment_guide">Fill the frame with every QR on the screen</string>
     <string name="pick_video">Pick a video file</string>
     <string name="decoding_video">Decoding video frames…</string>
     <string name="decode_video_tip">Only videos that show flashing LightBeam QR frames can be recovered.</string>

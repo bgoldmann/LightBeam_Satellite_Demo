@@ -45,9 +45,10 @@ const copy = {
     exportHint:
       "Phone Decode Video works best with H.264 MP4. WebM is fine for preview; Android is best-effort for WebM.",
     offline: "No Internet connection is required on receivers.",
-    scanHelp: "Open LightBeam and point your camera at this code",
+    scanHelp:
+      "Open LightBeam and fill the camera with every QR on screen (Lab shows four at once)",
     loopHelp:
-      "QR stream sends unique codes continuously. Keep scanning until progress hits 100% — missed codes are covered by later symbols.",
+      "Each tick sends unique fountain symbols. Keep scanning until 100% — later codes cover misses.",
     loopStatus: "Pass {n} · {pct}%",
     generatePreview: "Start continuous QR stream",
   },
@@ -74,7 +75,7 @@ const copy = {
     exportHint:
       "رمزگشایی ویدیو روی گوشی با H.264 MP4 بهترین نتیجه را می‌دهد. WebM برای پیش‌نمایش مناسب است.",
     offline: "گیرنده به اینترنت، وای‌فای یا بلوتوث نیاز ندارد.",
-    scanHelp: "برای دریافت فایل، دوربین را روبه‌روی تصویر تلویزیون ثابت نگه دارید",
+    scanHelp: "برای دریافت فایل، همهٔ کدهای روی تصویر را داخل کادر دوربین نگه دارید (حالت آزمایشگاهی چهار کد هم‌زمان نشان می‌دهد)",
     loopHelp:
       "جریان QR کدهای یکتا می‌فرستد. تا رسیدن پیشرفت به ۱۰۰٪ اسکن را ادامه دهید.",
     loopStatus: "دور {n} · {pct}٪",
@@ -98,7 +99,6 @@ export default function App() {
   const [loops, setLoops] = useState(5);
   const [session, setSession] = useState<EncodeSession | null>(null);
   const [info, setInfo] = useState<SessionInfo | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [publishCatalog, setPublishCatalog] = useState(false);
@@ -161,19 +161,14 @@ export default function App() {
     playoutRef.current = null;
   }, []);
 
-  const drawFrame = useCallback((url: string, loopIndex: number, loopPct: number) => {
-    setPreviewUrl(url);
+  const drawFrame = useCallback((loopIndex: number, loopPct: number) => {
     setLoopUi({ index: loopIndex, pct: loopPct });
     const canvas = canvasRef.current;
     const sess = session;
     if (!canvas || !sess) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const img = new Image();
-    img.onload = () => {
-      sess.drawBroadcastFrame(ctx, img, loopPct / 100);
-    };
-    img.src = url;
+    sess.paintBroadcastTick(ctx, loopPct / 100, { looping: false });
   }, [session]);
 
   const startPreview = useCallback(async () => {
@@ -182,7 +177,7 @@ export default function App() {
     setStep("preview");
     const playout = new LoopingQrPlayout(session, {
       onStatus: setPlayoutStatus,
-      onFrame: drawFrame,
+      onPaint: drawFrame,
     });
     playoutRef.current = playout;
     await playout.start();
@@ -236,7 +231,7 @@ export default function App() {
         downloadText(verificationReport(fresh.info), "verification-report.txt");
         downloadText(fresh.info.payloadHash + "  transmission\n", "checksum.sha256");
 
-        let catalogLine = t.catalogSkip;
+        let catalogLine: string = t.catalogSkip;
         if (publishCatalog && isSupabaseConfigured) {
           const pub = await publishTransmissionMetadata({
             shortCode: fresh.info.shortCode,
@@ -428,6 +423,10 @@ export default function App() {
                 <dd>~{info.estimatedRuntimeSec}s</dd>
               </div>
               <div>
+                <dt>Codes / frame</dt>
+                <dd>{session?.profile.tiles ?? 1}</dd>
+              </div>
+              <div>
                 <dt>QR / loop</dt>
                 <dd>{info.loopFrameCount}</dd>
               </div>
@@ -465,7 +464,6 @@ export default function App() {
               </p>
             )}
             <canvas ref={canvasRef} width={1920} height={1080} className="broadcast-canvas" />
-            {previewUrl && <img src={previewUrl} alt="QR" className="qr-thumb" />}
             <p className="hint">{t.exportHint}</p>
             <div className="actions">
               <button type="button" className="ghost" onClick={stopPreview}>

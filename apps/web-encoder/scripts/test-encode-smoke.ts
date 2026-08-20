@@ -1,5 +1,6 @@
 /** Encode → decompress + profile alias smoke for ACE / LBOP-004. */
-import { EncodeSession, resolveProfileId, PROFILES } from "../src/lib/encoder";
+import { EncodeSession, resolveProfileId, PROFILES, lbopQrSegments } from "../src/lib/encoder";
+import QRCode from "qrcode";
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(msg);
@@ -8,6 +9,8 @@ function assert(cond: boolean, msg: string) {
 async function main() {
   assert(resolveProfileId("A") === "lab", "A→lab");
   assert(resolveProfileId("D") === "archive", "D→archive");
+  assert(PROFILES.lab.tiles === 4, "lab 4-tile");
+  assert(PROFILES.lab.blockSize === 768, "lab block 768");
   assert(PROFILES.archive.letter === "D", "archive letter");
 
   const text = new TextEncoder().encode("LightBeam signature and ACE interop ".repeat(80));
@@ -37,7 +40,11 @@ async function main() {
   }
 
   // Collect enough frames for LT recover is heavy; just emit a few frame bytes
-  for (let i = 0; i < 16; i++) session.nextFrameBytes({ looping: false });
+  const frame = session.nextFrameBytes({ looping: false });
+  assert(frame[0] === 0x4c && frame[1] === 0x42 && frame[2] === 0x4f && frame[3] === 0x50, "LBOP magic");
+  const qr = QRCode.create(lbopQrSegments(frame), { errorCorrectionLevel: "L" });
+  assert(typeof qr.version === "number" && qr.version >= 1 && qr.version <= 40, "binary QR version");
+  for (let i = 0; i < 15; i++) session.nextFrameBytes({ looping: false });
 
   console.log(
     "encode smoke OK",

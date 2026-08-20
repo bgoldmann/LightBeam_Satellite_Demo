@@ -84,9 +84,13 @@ final class SessionDecoder: ObservableObject {
 
     /// Live camera — async so metadata callbacks stay responsive.
     func ingestQRString(_ string: String) {
+        ingestQRPayload(Data(string.utf8))
+    }
+
+    func ingestQRPayload(_ data: Data) {
         ingestQueue.async { [weak self] in
             guard let self else { return }
-            let done = self.ingestStringOnQueue(string)
+            let done = self.ingestPayloadOnQueue(data)
             let snap = self.snapshotOnQueue()
             DispatchQueue.main.async {
                 self.publish(
@@ -106,10 +110,14 @@ final class SessionDecoder: ObservableObject {
 
     /// Video decode / unit tests — synchronous.
     func ingestQRStringSync(_ string: String) {
+        ingestQRPayloadSync(Data(string.utf8))
+    }
+
+    func ingestQRPayloadSync(_ data: Data) {
         var done = false
         var snap: Snap!
         ingestQueue.sync {
-            done = self.ingestStringOnQueue(string)
+            done = self.ingestPayloadOnQueue(data)
             snap = self.snapshotOnQueue()
         }
         publish(
@@ -158,7 +166,11 @@ final class SessionDecoder: ObservableObject {
     }
 
     private func ingestStringOnQueue(_ string: String) -> Bool {
-        guard let frame = LBOPFrame.decodeFromQRString(string) else { return false }
+        ingestPayloadOnQueue(Data(string.utf8))
+    }
+
+    private func ingestPayloadOnQueue(_ data: Data) -> Bool {
+        guard let frame = LBOPFrame.decodeFromQRPayload(data) else { return false }
         return ingestFrameOnQueue(frame)
     }
 

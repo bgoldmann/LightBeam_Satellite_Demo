@@ -49,8 +49,9 @@ async function exportViaMediaRecorder(
   const ctx = canvas.getContext("2d")!;
 
   const symbolsNeeded = session.loopFrameCount || Math.ceil(session.info.estimatedSymbols * 1.1);
-  const totalTicks = symbolsNeeded;
-  const frameCount = totalTicks * profile.holdFrames * Math.max(1, loops);
+  const tiles = Math.max(1, profile.tiles);
+  const displayTicks = Math.ceil(symbolsNeeded / tiles) * Math.max(1, loops);
+  const frameCount = displayTicks * profile.holdFrames;
 
   const stream = canvas.captureStream(profile.fps);
   const chunks: Blob[] = [];
@@ -64,27 +65,19 @@ async function exportViaMediaRecorder(
   });
   recorder.start(100);
 
-  const img = new Image();
   let tick = 0;
   let videoFrame = 0;
   const hold = profile.holdFrames;
   const frameDurationMs = 1000 / profile.fps;
 
-  while (tick < totalTicks * loops) {
+  while (tick < displayTicks) {
     onProgress?.({
       phase: "Encoding frames",
       current: videoFrame,
       total: frameCount,
     });
-    const url = await session.nextQrDataUrl({ looping: true });
-    await new Promise<void>((res, rej) => {
-      img.onload = () => res();
-      img.onerror = () => rej(new Error("QR image load failed"));
-      img.src = url;
-    });
-    const loopProgress = session.loopProgress();
+    session.paintBroadcastTick(ctx, session.loopProgress(), { looping: true });
     for (let h = 0; h < hold; h++) {
-      session.drawBroadcastFrame(ctx, img, loopProgress);
       videoFrame++;
       await new Promise((r) => setTimeout(r, frameDurationMs * 0.85));
     }
@@ -148,15 +141,15 @@ async function exportPhoneSafeMp4WebCodecs(
   });
 
   const symbolsNeeded = session.loopFrameCount || Math.ceil(session.info.estimatedSymbols * 1.1);
-  const totalTicks = symbolsNeeded;
-  const frameCount = totalTicks * profile.holdFrames * Math.max(1, loops);
-  const img = new Image();
+  const tiles = Math.max(1, profile.tiles);
+  const displayTicks = Math.ceil(symbolsNeeded / tiles) * Math.max(1, loops);
+  const frameCount = displayTicks * profile.holdFrames;
   let tick = 0;
   let videoFrame = 0;
   const hold = profile.holdFrames;
   const frameDurationUs = Math.round(1_000_000 / fps);
 
-  while (tick < totalTicks * loops) {
+  while (tick < displayTicks) {
     onProgress?.({
       phase: "Encoding H.264 MP4 (phone-safe)",
       current: videoFrame,
@@ -164,15 +157,8 @@ async function exportPhoneSafeMp4WebCodecs(
     });
     if (encoderError) throw encoderError;
 
-    const url = await session.nextQrDataUrl({ looping: true });
-    await new Promise<void>((res, rej) => {
-      img.onload = () => res();
-      img.onerror = () => rej(new Error("QR image load failed"));
-      img.src = url;
-    });
-    const loopProgress = session.loopProgress();
+    session.paintBroadcastTick(ctx, session.loopProgress(), { looping: true });
     for (let h = 0; h < hold; h++) {
-      session.drawBroadcastFrame(ctx, img, loopProgress);
       const frame = new VideoFrame(canvas, {
         timestamp: videoFrame * frameDurationUs,
         duration: frameDurationUs,

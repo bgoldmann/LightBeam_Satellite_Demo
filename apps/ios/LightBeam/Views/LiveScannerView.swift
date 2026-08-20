@@ -40,7 +40,7 @@ struct LiveScannerView: View {
             KeepAwake.setEnabled(true)
             decoder.reset()
             scanner.onQRDetected = { qr in
-                decoder.ingestQRString(qr)
+                decoder.ingestQRPayload(qr)
             }
             // Poll completion — ingest is async off-main
             scanner.start()

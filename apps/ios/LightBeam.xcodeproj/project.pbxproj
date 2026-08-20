@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		010571C5E8792EE50E16C83D /* ZXingCpp in Frameworks */ = {isa = PBXBuildFile; productRef = 539D1D22B3A4F8F5F9665E16 /* ZXingCpp */; };
 		02F82F9FC9E8B6BDCAB07ED3 /* SafetyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0550C314003AD520EC7205F3 /* SafetyView.swift */; };
 		0E3406F347D60CE824338D0A /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 11C5EE12446BF2FEDE9F3260 /* Localizable.strings */; };
 		174CD9BBFA22683DF1E98589 /* RecoveredFileDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = D554D26F1BCCFE7F0D25FD26 /* RecoveredFileDocument.swift */; };
@@ -95,6 +96,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3D402541C9E14B6254666325 /* libzstd in Frameworks */,
+				010571C5E8792EE50E16C83D /* ZXingCpp in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -207,6 +209,7 @@
 			name = LightBeam;
 			packageProductDependencies = (
 				70C704AE71F3AAF9851CBE90 /* libzstd */,
+				539D1D22B3A4F8F5F9665E16 /* ZXingCpp */,
 			);
 			productName = LightBeam;
 			productReference = EB8B7DB2FA0A96E4D26B214A /* LightBeam.app */;
@@ -257,6 +260,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				F7EA066E275A35244E0243C5 /* XCRemoteSwiftPackageReference "zstd" */,
+				27DFBC919CA067F2899869D5 /* XCRemoteSwiftPackageReference "zxing-cpp" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F4F20A0F0F7D11AB0F51C241 /* Products */;
@@ -352,6 +356,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
+				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 9SA68Z35FA;
@@ -386,6 +392,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
+				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 9SA68Z35FA;
@@ -574,6 +582,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		27DFBC919CA067F2899869D5 /* XCRemoteSwiftPackageReference "zxing-cpp" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/zxing-cpp/zxing-cpp";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.3.0;
+			};
+		};
 		F7EA066E275A35244E0243C5 /* XCRemoteSwiftPackageReference "zstd" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/facebook/zstd";
@@ -585,6 +601,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		539D1D22B3A4F8F5F9665E16 /* ZXingCpp */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 27DFBC919CA067F2899869D5 /* XCRemoteSwiftPackageReference "zxing-cpp" */;
+			productName = ZXingCpp;
+		};
 		70C704AE71F3AAF9851CBE90 /* libzstd */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F7EA066E275A35244E0243C5 /* XCRemoteSwiftPackageReference "zstd" */;

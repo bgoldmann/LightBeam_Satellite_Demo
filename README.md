@@ -60,9 +60,9 @@ open LightBeam.xcodeproj
 |-------|--------|
 | FEC | Luby Transform (robust soliton) — [ADR 0001](spec/ADRs/0001-fec-lt.md) |
 | Core | Rust source of truth + platform ports — [ADR 0002](spec/ADRs/0002-shared-rust-core.md) |
-| Optical | Standard QR, multi-frame hold — [ADR 0003](spec/ADRs/0003-qr-and-frame-timing.md) |
+| Optical | Standard QR; Lab uses 4 codes/frame — [ADR 0003](spec/ADRs/0003-qr-and-frame-timing.md) |
 | Crypto | Ed25519, Argon2id, XChaCha20-Poly1305, SHA-256 |
-| Profiles | Studio / Satellite Safe / Lab |
+| Profiles | A Lab (4-tile) / B Studio / C Satellite Safe / D Archive |
 
 ## Offline guarantee
 

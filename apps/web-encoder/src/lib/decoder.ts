@@ -31,6 +31,24 @@ export class BrowserDecodeSession {
     return this.ingestFrame(bin);
   }
 
+  /** Raw QR bytes: binary LBOP, or legacy Base64(LBOP). */
+  ingestQrPayload(data: Uint8Array): boolean {
+    if (
+      data.length >= 4 &&
+      data[0] === 0x4c &&
+      data[1] === 0x42 &&
+      data[2] === 0x4f &&
+      data[3] === 0x50
+    ) {
+      return this.ingestFrame(data);
+    }
+    try {
+      return this.ingestBase64(new TextDecoder().decode(data));
+    } catch {
+      return false;
+    }
+  }
+
   ingestFrame(data: Uint8Array): boolean {
     const frame = decodeFrame(data);
     const sid = [...frame.sessionId].map((b) => b.toString(16).padStart(2, "0")).join("");

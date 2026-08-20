@@ -34,6 +34,8 @@ export interface BroadcastProfile {
   redundancy: number;
   qrEcc: "L" | "M" | "Q" | "H";
   maxFileMb: number;
+  /** Independent QR codes per video frame (Decimen-style spatial multiplex). */
+  tiles: 1 | 2 | 4;
   description: string;
 }
 
@@ -44,11 +46,12 @@ export const PROFILES: Record<ProfileId, BroadcastProfile> = {
     label: "A — Ultra Fast (Lab)",
     fps: 60,
     holdFrames: 2,
-    blockSize: 512,
+    blockSize: 768,
     redundancy: 0.25,
     qrEcc: "L",
     maxFileMb: 25,
-    description: "Maximum phone-camera rate: 30 unique QR/s on a 60 Hz display",
+    tiles: 4,
+    description: "Four binary QRs per frame × 30 unique ticks/s — Decimen-style multiplex",
   },
   studio: {
     id: "studio",
@@ -60,6 +63,7 @@ export const PROFILES: Record<ProfileId, BroadcastProfile> = {
     redundancy: 0.5,
     qrEcc: "M",
     maxFileMb: 2,
+    tiles: 1,
     description: "One large code, high margin, up to 2 MB",
   },
   satellite_safe: {
@@ -72,6 +76,7 @@ export const PROFILES: Record<ProfileId, BroadcastProfile> = {
     redundancy: 0.85,
     qrEcc: "M",
     maxFileMb: 5,
+    tiles: 1,
     description: "Lower density, extra redundancy for broadcast chains",
   },
   archive: {
@@ -84,6 +89,7 @@ export const PROFILES: Record<ProfileId, BroadcastProfile> = {
     redundancy: 1.0,
     qrEcc: "M",
     maxFileMb: 5,
+    tiles: 1,
     description: "Conservative rate and higher redundancy for difficult channels",
   },
 };
@@ -237,7 +243,8 @@ export class EncodeSession {
     };
 
     const estimatedSymbols = Math.ceil(blockCount * (1 + profile.redundancy));
-    const symbolsPerSec = profile.fps / profile.holdFrames;
+    const tiles = profile.tiles;
+    const symbolsPerSec = (profile.fps / profile.holdFrames) * tiles;
     const dataRatio = (session.beaconInterval - 2) / session.beaconInterval;
     const estimatedRuntimeSec = Math.ceil(estimatedSymbols / (symbolsPerSec * dataRatio));
     // One broadcast loop = enough fountain symbols for recovery (+10% headroom)
@@ -336,21 +343,45 @@ export class EncodeSession {
   }
 
   async nextQrDataUrl(opts?: { looping?: boolean }): Promise<string> {
-    const bytes = this.nextFrameBytes(opts);
-    // QR byte mode via binary as base64 string for scanner compatibility
-    const b64 = bytesToBase64(bytes);
-    return QRCode.toDataURL(b64, {
-      errorCorrectionLevel: this.profile.qrEcc,
-      margin: 1,
-      width: 400,
-      color: { dark: "#000000", light: "#ffffff" },
-    });
+    if (typeof document === "undefined") {
+      const bytes = this.nextFrameBytes(opts);
+      return QRCode.toDataURL(lbopQrSegments(bytes), {
+        errorCorrectionLevel: this.profile.qrEcc,
+        margin: 2,
+        width: 720,
+        color: { dark: "#000000", light: "#ffffff" },
+      });
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("2d context");
+    this.paintBroadcastTick(ctx, this.loopProgress(), opts);
+    return canvas.toDataURL("image/png");
   }
 
-  /** Draw broadcast-safe frame onto canvas (1920x1080). */
-  drawBroadcastFrame(
+  /**
+   * Paint one video frame: `tiles` independent LBOP QRs (1 or 2×2).
+   * Live path should call this directly — no PNG round-trip.
+   */
+  paintBroadcastTick(
     ctx: CanvasRenderingContext2D,
-    qrImage: HTMLImageElement | HTMLCanvasElement,
+    loopProgress: number,
+    opts?: { looping?: boolean },
+  ) {
+    const tiles = this.profile.tiles;
+    const qrs: ReturnType<typeof QRCode.create>[] = [];
+    for (let i = 0; i < tiles; i++) {
+      const bytes = this.nextFrameBytes(opts);
+      qrs.push(createLbopQr(bytes, this.profile.qrEcc));
+    }
+    this.paintBroadcastLayout(ctx, qrs, loopProgress);
+  }
+
+  private paintBroadcastLayout(
+    ctx: CanvasRenderingContext2D,
+    qrs: ReturnType<typeof QRCode.create>[],
     loopProgress: number,
   ) {
     const W = 1920;
@@ -358,49 +389,77 @@ export class EncodeSession {
     ctx.fillStyle = "#0b1220";
     ctx.fillRect(0, 0, W, H);
 
-    // Safe area margins ~5%
-    const mx = Math.floor(W * 0.08);
-    const my = Math.floor(H * 0.08);
+    const mx = Math.floor(W * 0.025);
+    const my = Math.floor(H * 0.02);
 
-    // Instruction band
     ctx.fillStyle = "#e8eef7";
-    ctx.font = "600 36px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillText(this.info.shortCode ? `LightBeam  ·  ${this.info.shortCode}` : "LightBeam", mx, my + 20);
-    ctx.font = "28px 'Segoe UI', system-ui, sans-serif";
+    ctx.font = "600 22px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText(this.info.shortCode ? `LightBeam  ·  ${this.info.shortCode}` : "LightBeam", mx, my + 16);
+    ctx.font = "16px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "#a8b7cc";
     const title = JSON.parse(this.info.manifestJson).title as string;
-    const publisher = JSON.parse(this.info.manifestJson).publisher_name as string;
-    ctx.fillText(title, mx, my + 70);
-    ctx.font = "22px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillText(`Publisher: ${publisher}`, mx, my + 110);
-    ctx.fillText("Open LightBeam and point your camera at this code", mx, my + 150);
-    ctx.font = "20px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillText("برای دریافت فایل، دوربین را روبه‌روی تصویر نگه دارید", mx, my + 190);
+    const tileHint = qrs.length > 1 ? `  ·  ${qrs.length} codes/frame — fill the camera with all of them` : "";
+    ctx.fillText(`${title}${tileHint}`, mx, my + 40);
 
-    // Alignment border + QR in center safe zone
-    const qrSize = Math.min(W, H) * 0.68;
-    const qx = (W - qrSize) / 2;
-    const qy = (H - qrSize) / 2 + 40;
-    ctx.strokeStyle = "#5eead4";
-    ctx.lineWidth = 6;
-    ctx.strokeRect(qx - 24, qy - 24, qrSize + 48, qrSize + 48);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(qx - 12, qy - 12, qrSize + 24, qrSize + 24);
-    ctx.drawImage(qrImage, qx, qy, qrSize, qrSize);
+    const cols = qrs.length >= 4 ? 2 : qrs.length === 2 ? 2 : 1;
+    const rows = Math.ceil(qrs.length / cols);
+    const topBand = my + 52;
+    const bottomBand = 28;
+    const regionW = W - 2 * mx;
+    const regionH = H - topBand - my - bottomBand;
+    const gap = qrs.length > 1 ? 28 : 16;
+    const cellW = (regionW - gap * (cols - 1)) / cols;
+    const cellH = (regionH - gap * (rows - 1)) / rows;
+    const avail = Math.min(cellW, cellH);
+    const quiet = Math.max(12, Math.floor(avail * 0.04));
+    const qrSize = Math.max(64, Math.floor(avail - 2 * quiet));
 
-    // Loop progress bar
+    for (let i = 0; i < qrs.length; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const cx = mx + col * (cellW + gap) + (cellW - qrSize) / 2;
+      const cy = topBand + row * (cellH + gap) + (cellH - qrSize) / 2;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(cx - quiet, cy - quiet, qrSize + quiet * 2, qrSize + quiet * 2);
+      paintQrModules(ctx, qrs[i], cx, cy, qrSize);
+    }
+
     ctx.fillStyle = "#1e293b";
-    ctx.fillRect(mx, H - my - 20, W - 2 * mx, 12);
+    ctx.fillRect(mx, H - my - 16, W - 2 * mx, 10);
     ctx.fillStyle = "#38bdf8";
-    ctx.fillRect(mx, H - my - 20, (W - 2 * mx) * Math.min(1, loopProgress), 12);
-
-    // Reserved logo corner (top-right empty)
-    ctx.strokeStyle = "#334155";
-    ctx.strokeRect(W - mx - 160, my - 10, 160, 80);
-    ctx.fillStyle = "#64748b";
-    ctx.font = "16px sans-serif";
-    ctx.fillText("LOGO SAFE", W - mx - 140, my + 35);
+    ctx.fillRect(mx, H - my - 16, (W - 2 * mx) * Math.min(1, loopProgress), 10);
   }
+}
+
+function paintQrModules(
+  ctx: CanvasRenderingContext2D,
+  qr: ReturnType<typeof QRCode.create>,
+  x: number,
+  y: number,
+  dim: number,
+) {
+  const n = qr.modules.size;
+  const cell = dim / n;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x, y, dim, dim);
+  ctx.fillStyle = "#000000";
+  // qrcode BitMatrix.get(row, col) — swapping args transposes the symbol and tanks decode rate.
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (qr.modules.get(r, c)) {
+        ctx.fillRect(x + c * cell, y + r * cell, cell + 0.55, cell + 0.55);
+      }
+    }
+  }
+}
+
+/** Byte-mode QR of raw LBOP frame bytes (no Base64). Types only list string segments. */
+export function lbopQrSegments(bytes: Uint8Array) {
+  return [{ data: bytes, mode: "byte" as const }] as unknown as string;
+}
+
+function createLbopQr(bytes: Uint8Array, ecc: BroadcastProfile["qrEcc"]) {
+  return QRCode.create(lbopQrSegments(bytes), { errorCorrectionLevel: ecc });
 }
 
 export function verificationReport(info: SessionInfo): string {

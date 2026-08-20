@@ -11,11 +11,8 @@ export type PlayoutStatus = {
 };
 
 /**
- * Live playout streams **new fountain symbols forever** (never reuses symbol IDs).
- * That way the phone cannot stall mid-decode after one cycle of duplicates.
- * A visual "loop" meter still wraps for UX; recovery comes from fresh redundancy.
- *
- * Prefetches a small buffer of QR data-URLs so encode latency doesn't freeze the screen.
+ * Live playout paints **new fountain symbols forever** (never reuses symbol IDs).
+ * Lab profile may emit several QR tiles per video frame (spatial multiplex).
  */
 export class LoopingQrPlayout {
   private timer: number | null = null;
@@ -24,73 +21,43 @@ export class LoopingQrPlayout {
   private wakeLock: WakeLockSentinel | null = null;
   private session: EncodeSession;
   private onStatus: (s: PlayoutStatus) => void;
-  private onFrame: (dataUrl: string, loopIndex: number, loopPct: number) => void;
-  private buffer: string[] = [];
-  private producing = false;
+  private onPaint: (loopIndex: number, loopPct: number) => void;
   private cycleLen = 1;
-  private prefetchTarget = 36;
   private nextDueAt = 0;
 
   constructor(
     session: EncodeSession,
     handlers: {
       onStatus: (s: PlayoutStatus) => void;
-      onFrame: (dataUrl: string, loopIndex: number, loopPct: number) => void;
+      onPaint: (loopIndex: number, loopPct: number) => void;
     },
   ) {
     this.session = session;
     this.onStatus = handlers.onStatus;
-    this.onFrame = handlers.onFrame;
+    this.onPaint = handlers.onPaint;
   }
 
   async start(): Promise<void> {
     await this.stop();
     this.running = true;
     this.index = 0;
-    this.buffer = [];
     this.nextDueAt = 0;
+    const tiles = Math.max(1, this.session.profile.tiles);
     this.cycleLen = Math.max(
       1,
-      this.session.loopFrameCount || this.session.info.loopFrameCount || 64,
+      Math.ceil((this.session.loopFrameCount || this.session.info.loopFrameCount || 64) / tiles),
     );
-
-    this.onStatus({
-      phase: "preparing",
-      prepareCurrent: 0,
-      prepareTotal: this.prefetchTarget,
-      loopIndex: 0,
-      loopPct: 0,
-      message: "Warming up continuous QR stream…",
-    });
-
-    try {
-      await this.fillBuffer(this.prefetchTarget);
-    } catch (e) {
-      this.running = false;
-      this.onStatus({
-        phase: "error",
-        prepareCurrent: this.buffer.length,
-        prepareTotal: this.prefetchTarget,
-        loopIndex: 0,
-        loopPct: 0,
-        message: e instanceof Error ? e.message : String(e),
-      });
-      return;
-    }
-
-    if (!this.running) return;
 
     await this.acquireWakeLock();
     this.onStatus({
       phase: "playing",
-      prepareCurrent: this.buffer.length,
-      prepareTotal: this.prefetchTarget,
+      prepareCurrent: 0,
+      prepareTotal: 0,
       loopIndex: 1,
       loopPct: 0,
       message: "Streaming unique QR symbols — keep scanning until 100%",
     });
     this.scheduleNext(0);
-    void this.producerLoop();
   }
 
   async stop(): Promise<void> {
@@ -103,7 +70,7 @@ export class LoopingQrPlayout {
     this.onStatus({
       phase: "stopped",
       prepareCurrent: 0,
-      prepareTotal: this.prefetchTarget,
+      prepareTotal: 0,
       loopIndex: Math.floor(this.index / this.cycleLen) + 1,
       loopPct: 0,
     });
@@ -113,76 +80,25 @@ export class LoopingQrPlayout {
     return this.running;
   }
 
-  private async fillBuffer(count: number): Promise<void> {
-    for (let i = 0; i < count; i++) {
-      if (!this.running) return;
-      // IMPORTANT: looping:false → new symbol IDs every frame (no mid-decode stall)
-      const url = await this.session.nextQrDataUrl({ looping: false });
-      this.buffer.push(url);
-      this.onStatus({
-        phase: "preparing",
-        prepareCurrent: this.buffer.length,
-        prepareTotal: count,
-        loopIndex: 0,
-        loopPct: Math.round((this.buffer.length / count) * 100),
-        message: `Warming up continuous QR stream… ${this.buffer.length}/${count}`,
-      });
-    }
-  }
-
-  private async producerLoop(): Promise<void> {
-    if (this.producing) return;
-    this.producing = true;
-    try {
-      while (this.running) {
-        while (this.running && this.buffer.length < this.prefetchTarget) {
-          try {
-            const url = await this.session.nextQrDataUrl({ looping: false });
-            this.buffer.push(url);
-          } catch (e) {
-            console.warn("QR encode failed, retrying", e);
-            await new Promise((r) => setTimeout(r, 20));
-          }
-        }
-        const low = this.buffer.length < Math.ceil(this.prefetchTarget / 3);
-        await new Promise((r) => setTimeout(r, low ? 0 : 8));
-      }
-    } finally {
-      this.producing = false;
-    }
-  }
-
   private scheduleNext(delayMs: number): void {
     if (!this.running) return;
     this.timer = window.setTimeout(() => {
-      void this.tick();
+      this.tick();
     }, delayMs);
   }
 
-  private async tick(): Promise<void> {
+  private tick(): void {
     if (!this.running) return;
 
-    let url = this.buffer.shift();
-    if (!url) {
-      // Buffer underrun — generate one immediately, never stop
-      try {
-        url = await this.session.nextQrDataUrl({ looping: false });
-      } catch (e) {
-        console.warn("playout underrun encode failed", e);
-        this.scheduleNext(50);
-        return;
-      }
-    }
-
     const loopIndex = Math.floor(this.index / this.cycleLen) + 1;
-    const loopPct = Math.round(((this.index % this.cycleLen) + 1) / this.cycleLen * 100);
+    const loopPct = Math.round((((this.index % this.cycleLen) + 1) / this.cycleLen) * 100);
 
     try {
-      this.onFrame(url, loopIndex, loopPct);
+      this.onPaint(loopIndex, loopPct);
       this.onStatus({
         phase: "playing",
-        prepareCurrent: this.buffer.length,
-        prepareTotal: this.prefetchTarget,
+        prepareCurrent: 0,
+        prepareTotal: 0,
         loopIndex,
         loopPct,
         message: "Streaming unique QR symbols — keep scanning until 100%",
@@ -201,7 +117,6 @@ export class LoopingQrPlayout {
     const now = performance.now();
     if (this.nextDueAt === 0) this.nextDueAt = now + holdMs;
     else this.nextDueAt += holdMs;
-    // If encode/draw fell behind, skip catch-up delay so the phone sees a new symbol ASAP.
     if (this.nextDueAt < now - holdMs) this.nextDueAt = now;
     this.scheduleNext(Math.max(0, this.nextDueAt - now));
   }

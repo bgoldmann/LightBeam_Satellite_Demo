@@ -168,7 +168,7 @@ struct DecodeVideoView: View {
             from: url,
             onFrame: { qr in
                 let before = decoder.symbolsReceived
-                decoder.ingestQRStringSync(qr)
+                decoder.ingestQRPayloadSync(qr)
                 if let result = decoder.tryFinalize() {
                     completedResult = result
                     showCompletion = true

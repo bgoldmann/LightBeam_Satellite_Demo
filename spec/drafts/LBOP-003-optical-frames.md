@@ -8,8 +8,8 @@
 ## 1. Decisions (Phase 1)
 
 - **Standard QR** only (no custom optical symbols).
-- **One large QR per video frame**, centered in broadcast-safe margins.
-- QR content = **Base64(LBOP frame bytes)** for scanner compatibility.
+- QR content = **raw LBOP frame bytes** in QR byte mode. Receivers **MUST** also accept legacy **Base64(LBOP)** payloads from older transmissions.
+- **Spatial multiplex:** Lab (A) paints **4 independent QRs per video frame** (2×2). Other profiles paint 1. Receivers MUST ingest every decoded QR in a camera/video frame, not only the largest.
 - Hard cuts only — no fades between symbols.
 
 ## 2. ECC
@@ -22,12 +22,12 @@
 
 Default playout **30 fps** unless profile says otherwise. Each logical LBOP symbol is held for `holdFrames` video frames.
 
-| Profile | FPS | Hold | Approx symbol rate |
-|---------|-----|------|--------------------|
-| Studio (B) | 30 | 2 | 15 Hz |
-| Satellite Safe (C) | 30 (25 playout variant) | 3 | 10 Hz |
-| Lab (A) | 60 | 1 | 60 Hz |
-| Archive (D) | 25 | 4 | ~6.25 Hz |
+| Profile | FPS | Hold | Tiles | Approx symbol rate |
+|---------|-----|------|-------|--------------------|
+| Studio (B) | 30 | 2 | 1 | 15 Hz |
+| Satellite Safe (C) | 30 (25 playout variant) | 3 | 1 | 10 Hz |
+| Lab (A) | 60 | 2 | 4 | 120 Hz (30 unique display ticks/s × 4 codes) |
+| Archive (D) | 25 | 4 | 1 | ~6.25 Hz |
 
 ## 4. Decode libraries
 

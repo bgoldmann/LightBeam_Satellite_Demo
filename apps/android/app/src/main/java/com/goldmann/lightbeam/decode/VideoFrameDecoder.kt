@@ -11,15 +11,10 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import zxingcpp.BarcodeReader
 import java.io.ByteArrayOutputStream
-import kotlin.coroutines.resume
 import kotlin.math.max
 import kotlin.math.min
 
@@ -29,19 +24,22 @@ import kotlin.math.min
  * 2) MediaMetadataRetriever fallback
  *
  * Adaptive sampling: ~10 Hz until first LBOP-looking QR, then denser.
- * Upscales frames with short side < 720 before ML Kit.
+ * Upscales frames with short side < 720 before zxing-cpp.
  */
 class VideoFrameDecoder(private val context: Context) {
-    private val scanner = BarcodeScanning.getClient(
-        BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .build(),
+    private val reader = BarcodeReader(
+        BarcodeReader.Options(
+            formats = setOf(BarcodeReader.Format.QR_CODE),
+            tryHarder = true,
+            tryInvert = true,
+            maxNumberOfSymbols = 8,
+        ),
     )
 
     suspend fun scanVideo(
         uri: Uri,
         onProgress: (framesScanned: Int, qrHits: Int) -> Unit,
-        onQr: suspend (String) -> Boolean,
+        onQr: suspend (ByteArray) -> Boolean,
     ): VideoDecodeReport = withContext(Dispatchers.IO) {
         try {
             scanWithMediaCodec(uri, onProgress, onQr)
@@ -62,7 +60,7 @@ class VideoFrameDecoder(private val context: Context) {
     private suspend fun scanWithMediaCodec(
         uri: Uri,
         onProgress: (Int, Int) -> Unit,
-        onQr: suspend (String) -> Boolean,
+        onQr: suspend (ByteArray) -> Boolean,
     ): VideoDecodeReport {
         val extractor = MediaExtractor()
         extractor.setDataSource(context, uri, null)
@@ -136,18 +134,16 @@ class VideoFrameDecoder(private val context: Context) {
                                 image.close()
                                 if (bitmap != null) {
                                     framesScanned++
-                                    val text = scanBitmap(bitmap)
+                                    val payloads = scanBitmapAll(bitmap)
                                     bitmap.recycle()
-                                    if (text != null) {
-                                        qrHits++
+                                    if (payloads.isNotEmpty()) {
+                                        qrHits += payloads.size
                                         sawQr = true
                                         sampleIntervalUs = 33_000L // denser after first QR
-                                        if (looksLikeLbop(text)) {
-                                            sawLbop = true
-                                            if (onQr(text)) {
-                                                lbopUseful++
-                                                // Caller returns true on accept/complete; denser already set.
-                                                // Stop after useful ingest when session finished (checked by idle).
+                                        for (payload in payloads) {
+                                            if (looksLikeLbop(payload)) {
+                                                sawLbop = true
+                                                if (onQr(payload)) lbopUseful++
                                             }
                                         }
                                     }
@@ -182,7 +178,7 @@ class VideoFrameDecoder(private val context: Context) {
     private suspend fun scanWithRetriever(
         uri: Uri,
         onProgress: (Int, Int) -> Unit,
-        onQr: suspend (String) -> Boolean,
+        onQr: suspend (ByteArray) -> Boolean,
     ): VideoDecodeReport {
         val retriever = MediaMetadataRetriever()
         try {
@@ -213,15 +209,17 @@ class VideoFrameDecoder(private val context: Context) {
                 )?.let { maybeUpscale(it) }
                 if (bitmap != null) {
                     framesScanned++
-                    val text = scanBitmap(bitmap)
+                    val payloads = scanBitmapAll(bitmap)
                     bitmap.recycle()
-                    if (text != null) {
-                        qrHits++
+                    if (payloads.isNotEmpty()) {
+                        qrHits += payloads.size
                         sawQr = true
                         stepMs = 33L
-                        if (looksLikeLbop(text)) {
-                            sawLbop = true
-                            if (onQr(text)) lbopUseful++
+                        for (payload in payloads) {
+                            if (looksLikeLbop(payload)) {
+                                sawLbop = true
+                                if (onQr(payload)) lbopUseful++
+                            }
                         }
                     }
                     onProgress(framesScanned, qrHits)
@@ -281,9 +279,17 @@ class VideoFrameDecoder(private val context: Context) {
         return scaled
     }
 
-    private fun looksLikeLbop(text: String): Boolean {
+    private fun looksLikeLbop(data: ByteArray): Boolean {
+        if (data.size >= 4 &&
+            data[0] == 'L'.code.toByte() &&
+            data[1] == 'B'.code.toByte() &&
+            data[2] == 'O'.code.toByte() &&
+            data[3] == 'P'.code.toByte()
+        ) {
+            return true
+        }
         return try {
-            val decoded = android.util.Base64.decode(text.trim(), android.util.Base64.DEFAULT)
+            val decoded = android.util.Base64.decode(String(data, Charsets.US_ASCII).trim(), android.util.Base64.DEFAULT)
             decoded.size >= 4 &&
                 decoded[0] == 'L'.code.toByte() &&
                 decoded[1] == 'B'.code.toByte() &&
@@ -294,18 +300,16 @@ class VideoFrameDecoder(private val context: Context) {
         }
     }
 
-    suspend fun scanBitmap(bitmap: Bitmap): String? = suspendCancellableCoroutine { cont ->
-        val image = InputImage.fromBitmap(bitmap, 0)
-        scanner.process(image)
-            .addOnSuccessListener { barcodes ->
-                // Prefer largest QR by bounding box area
-                val best = barcodes.maxByOrNull { b ->
-                    val box = b.boundingBox
-                    if (box != null) box.width() * box.height() else 0
-                }
-                cont.resume(best?.rawValue)
+    private fun scanBitmapAll(bitmap: Bitmap): List<ByteArray> {
+        return try {
+            reader.read(bitmap).mapNotNull { result ->
+                val bytes = result.bytes
+                if (bytes != null && bytes.isNotEmpty()) bytes
+                else result.text?.toByteArray(Charsets.US_ASCII)
             }
-            .addOnFailureListener { cont.resume(null) }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun imageToBitmap(image: Image): Bitmap? {

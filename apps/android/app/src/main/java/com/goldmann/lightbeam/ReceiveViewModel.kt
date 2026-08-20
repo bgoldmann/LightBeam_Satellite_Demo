@@ -48,7 +48,11 @@ class ReceiveViewModel(
     }
 
     fun onQrDetected(text: String): Boolean {
-        return when (val result = session.ingestQrText(text)) {
+        return onQrPayload(text.toByteArray(Charsets.US_ASCII))
+    }
+
+    fun onQrPayload(data: ByteArray): Boolean {
+        return when (val result = session.ingestQrPayload(data)) {
             is ReceiveSession.FrameResult.Accepted -> {
                 publish()
                 true
@@ -81,7 +85,7 @@ class ReceiveViewModel(
                         _videoProgress.value = frames to qr
                         publish()
                     },
-                    onQr = { qr -> onQrDetected(qr) },
+                    onQr = { qr -> onQrPayload(qr) },
                 )
                 val finalReport = when {
                     session.snapshot().phase == SessionPhase.Complete &&

@@ -8,18 +8,12 @@ import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 import sharp from "sharp";
 import QRCode from "qrcode";
-import { EncodeSession } from "../src/lib/encoder";
+import { EncodeSession, lbopQrSegments } from "../src/lib/encoder";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "../../..");
 const outDir = resolve(root, "testdata/lightbeam-test-video");
 const framesDir = resolve(outDir, "frames");
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return btoa(s);
-}
 
 async function main() {
   rmSync(framesDir, { recursive: true, force: true });
@@ -61,8 +55,7 @@ async function main() {
 
   for (let tick = 0; tick < need; tick++) {
     const frameBytes = session.nextFrameBytes();
-    const b64 = bytesToBase64(frameBytes);
-    const png = await QRCode.toBuffer(b64, {
+    const png = await QRCode.toBuffer(lbopQrSegments(frameBytes), {
       errorCorrectionLevel: session.profile.qrEcc,
       type: "png",
       margin: 2,

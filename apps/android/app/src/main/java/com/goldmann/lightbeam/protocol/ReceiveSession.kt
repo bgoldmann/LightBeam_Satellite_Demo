@@ -145,6 +145,26 @@ class ReceiveSession {
         return ingestFrame(frame)
     }
 
+    /** Binary LBOP QR bytes, or legacy Base64(LBOP). */
+    fun ingestQrPayload(data: ByteArray): FrameResult {
+        if (looksLikeLbop(data)) {
+            val frame = try {
+                LbopCodec.decodeFrame(data)
+            } catch (e: Exception) {
+                return FrameResult.Corrupt(e.message ?: "decode error")
+            }
+            return ingestFrame(frame)
+        }
+        return ingestQrText(data.toString(Charsets.US_ASCII))
+    }
+
+    private fun looksLikeLbop(data: ByteArray): Boolean =
+        data.size >= 4 &&
+            data[0] == 'L'.code.toByte() &&
+            data[1] == 'B'.code.toByte() &&
+            data[2] == 'O'.code.toByte() &&
+            data[3] == 'P'.code.toByte()
+
     fun ingestFrame(frame: LbopFrame): FrameResult {
         val locked = lockedSessionId
         if (locked != null && !locked.contentEquals(frame.sessionId)) {

@@ -1,15 +1,15 @@
 import AVFoundation
 import Foundation
 import UIKit
-import Vision
+import ZXingCpp
 
-/// Live QR scanner optimized for dense LightBeam (LBOP) codes on TV/screens.
-/// Primary path: AVCaptureMetadataOutput (system QR detector).
-/// Fallback: Vision barcode detection on throttled frames.
+/// Live QR scanner for dense LightBeam (LBOP) codes on TV/screens.
+/// Primary path: zxing-cpp on camera frames (raw binary QR).
+/// Extra: AVCaptureMetadataOutput for legacy Base64 codes.
 final class CameraScanner: NSObject, ObservableObject {
     let session = AVCaptureSession()
 
-    var onQRDetected: ((String) -> Void)?
+    var onQRDetected: ((Data) -> Void)?
 
     @Published private(set) var isRunning = false
     @Published private(set) var cameraError: String?
@@ -24,9 +24,19 @@ final class CameraScanner: NSObject, ObservableObject {
     private var metadataOutput: AVCaptureMetadataOutput?
     private var videoOutput: AVCaptureVideoDataOutput?
     private var lastVisionTime = CFAbsoluteTimeGetCurrent()
-    private var lastEmitted = ""
+    private var lastEmitted = Data()
     private var lastEmitTime: CFAbsoluteTime = 0
     private var visionBusy = false
+    private lazy var zxingReader: ZXIBarcodeReader = {
+        let opts = ZXIReaderOptions()
+        opts.tryHarder = true
+        opts.tryRotate = false
+        opts.tryInvert = true
+        opts.tryDownscale = true
+        opts.maxNumberOfSymbols = 8
+        opts.formats = [NSNumber(value: ZXIFormat.QR_CODE.rawValue)]
+        return ZXIBarcodeReader(options: opts)
+    }()
 
     func start() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -151,7 +161,7 @@ final class CameraScanner: NSObject, ObservableObject {
         // Fallback: Vision on video frames (helps when metadata misses dense codes)
         let video = AVCaptureVideoDataOutput()
         video.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
         ]
         video.alwaysDiscardsLateVideoFrames = true
         video.setSampleBufferDelegate(self, queue: visionQueue)
@@ -173,28 +183,31 @@ final class CameraScanner: NSObject, ObservableObject {
     }
 
     private func emitQR(_ raw: String) {
+        emitQRPayload(Data(raw.utf8))
+    }
+
+    private func emitQRPayload(_ raw: Data) {
         sessionQueue.async { [weak self] in
             self?.emitQRLocked(raw)
         }
     }
 
-    private func emitQRLocked(_ raw: String) {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+    private func emitQRLocked(_ raw: Data) {
+        guard !raw.isEmpty else { return }
 
         let now = CFAbsoluteTimeGetCurrent()
-        if text == lastEmitted && (now - lastEmitTime) < 0.025 {
+        if raw == lastEmitted && (now - lastEmitTime) < 0.025 {
             return
         }
-        lastEmitted = text
+        lastEmitted = raw
         lastEmitTime = now
 
-        let length = text.count
+        let length = raw.count
         DispatchQueue.main.async { [weak self] in
             self?.qrHitCount += 1
             self?.lastPayloadLength = length
         }
-        onQRDetected?(text)
+        onQRDetected?(raw)
     }
 }
 
@@ -210,7 +223,6 @@ extension CameraScanner: AVCaptureMetadataOutputObjectsDelegate {
                   let value = qr.stringValue
             else { continue }
             emitQR(value)
-            return
         }
     }
 }
@@ -223,47 +235,23 @@ extension CameraScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
     ) {
         // Throttle Vision — metadata path is primary
         let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastVisionTime >= 0.04, !visionBusy else { return }
+        guard now - lastVisionTime >= 0.03, !visionBusy else { return }
         lastVisionTime = now
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         visionBusy = true
-        let orientation = Self.visionOrientation(for: connection)
-
         visionQueue.async { [weak self] in
             defer { self?.visionBusy = false }
-            let request = VNDetectBarcodesRequest { [weak self] request, _ in
-                guard let results = request.results as? [VNBarcodeObservation] else { return }
-                // Prefer largest QR by bounding box
-                let best = results
-                    .filter { $0.symbology == .qr }
-                    .max(by: {
-                        ($0.boundingBox.width * $0.boundingBox.height)
-                            < ($1.boundingBox.width * $1.boundingBox.height)
-                    })
-                guard let payload = best?.payloadStringValue else { return }
-                DispatchQueue.main.async {
-                    self?.emitQR(payload)
+            guard let self else { return }
+            var error: NSError?
+            let results = self.zxingReader.readCVPixelBuffer(pixelBuffer, error: &error) as? [ZXIResult] ?? []
+            for result in results {
+                if result.bytes.count > 0 {
+                    self.emitQRPayload(result.bytes)
+                } else if !result.text.isEmpty {
+                    self.emitQR(result.text)
                 }
             }
-            request.symbologies = [.qr]
-
-            let handler = VNImageRequestHandler(
-                cvPixelBuffer: pixelBuffer,
-                orientation: orientation,
-                options: [:]
-            )
-            try? handler.perform([request])
-        }
-    }
-
-    private static func visionOrientation(for connection: AVCaptureConnection) -> CGImagePropertyOrientation {
-        switch connection.videoOrientation {
-        case .portrait: return .right
-        case .portraitUpsideDown: return .left
-        case .landscapeRight: return .up
-        case .landscapeLeft: return .down
-        @unknown default: return .right
         }
     }
 }

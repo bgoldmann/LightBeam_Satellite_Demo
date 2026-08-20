@@ -11,7 +11,7 @@ import { BrowserDecodeSession } from "../src/lib/decoder";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-async function decodeQrFromImage(path: string): Promise<string | null> {
+async function decodeQrFromImage(path: string): Promise<Uint8Array | null> {
   const img = sharp(path);
   const { data, info } = await img
     .ensureAlpha()
@@ -23,7 +23,11 @@ async function decodeQrFromImage(path: string): Promise<string | null> {
     info.height,
     { inversionAttempts: "attemptBoth" },
   );
-  return code?.data ?? null;
+  if (!code) return null;
+  if (code.binaryData && code.binaryData.length > 0) {
+    return Uint8Array.from(code.binaryData);
+  }
+  return new TextEncoder().encode(code.data);
 }
 
 async function main() {
@@ -40,21 +44,21 @@ async function main() {
 
   for (let i = 0; i < files.length; i++) {
     const path = join(dir, files[i]);
-    let text: string | null = null;
+    let payload: Uint8Array | null = null;
     try {
-      text = await decodeQrFromImage(path);
+      payload = await decodeQrFromImage(path);
     } catch (e) {
       console.error("image error", files[i], e);
       continue;
     }
-    if (!text) continue;
+    if (!payload) continue;
     qrHits++;
-    if (samples.length < 5) samples.push(text.slice(0, 80));
+    if (samples.length < 5) samples.push(new TextDecoder().decode(payload.slice(0, 80)));
     try {
-      const ok = session.ingestBase64(text);
+      const ok = session.ingestQrPayload(payload);
       if (ok) lbopHits++;
     } catch {
-      // not LBOP base64
+      // not LBOP
     }
     if (i % 25 === 0 || session.isComplete) {
       console.log(

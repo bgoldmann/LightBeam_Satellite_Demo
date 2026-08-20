@@ -46,7 +46,7 @@
     <string name="payload_hash_label">هش محتوا</string>
     <string name="camera_permission_required">برای اسکن فریم‌های نوری به مجوز دوربین نیاز است.</string>
     <string name="grant_camera">اعطای دسترسی دوربین</string>
-    <string name="alignment_guide">کد QR را داخل کادر قرار دهید</string>
+    <string name="alignment_guide">همهٔ کدهای روی صفحه را داخل کادر نگه دارید</string>
     <string name="pick_video">انتخاب فایل ویدیو</string>
     <string name="decoding_video">رمزگشایی فریم‌های ویدیو…</string>
     <string name="decode_video_tip">فقط ویدیوهایی که فریم‌های QR لایت‌بیم چشمک‌زن دارند قابل بازیابی هستند.</string>

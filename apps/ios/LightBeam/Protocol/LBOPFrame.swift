@@ -89,6 +89,17 @@ struct LBOPFrame {
         return try? decode(data)
     }
 
+    /// Binary LBOP QR bytes, or legacy Base64(LBOP).
+    static func decodeFromQRPayload(_ data: Data) -> LBOPFrame? {
+        if data.count >= 4, data.prefix(4) == magic {
+            return try? decode(data)
+        }
+        if let text = String(data: data, encoding: .ascii) {
+            return decodeFromQRString(text)
+        }
+        return nil
+    }
+
     static func sessionShortCode(sessionId: Data) -> String {
         let alpha = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         var n: UInt64 = 0

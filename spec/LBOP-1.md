@@ -28,7 +28,7 @@ Original file
   → fixed source blocks
   → LT fountain symbols
   → LBOP frame envelope
-  → QR (Base64 of frame bytes)
+  → QR (byte-mode raw LBOP; Base64 still accepted)
   → broadcast video
 ```
 

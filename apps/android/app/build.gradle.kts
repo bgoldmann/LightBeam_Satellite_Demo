@@ -73,7 +73,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.0")
     implementation("androidx.camera:camera-view:1.4.0")
 
-    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("io.github.zxing-cpp:android:2.3.0")
 
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.18.1")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.1")

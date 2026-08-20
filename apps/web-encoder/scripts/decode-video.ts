@@ -125,7 +125,7 @@ function extractFrames(
   execFileSync("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
 }
 
-async function decodeQrFromImage(path: string): Promise<string | null> {
+async function decodeQrFromImage(path: string): Promise<Uint8Array | null> {
   let img = sharp(path);
   const meta = await img.metadata();
   const w = meta.width ?? 0;
@@ -146,16 +146,11 @@ async function decodeQrFromImage(path: string): Promise<string | null> {
     info.height,
     { inversionAttempts: "attemptBoth" },
   );
-  return code?.data ?? null;
-}
-
-function looksLikeLbopBase64(text: string): boolean {
-  try {
-    const bin = Uint8Array.from(atob(text.trim()), (c) => c.charCodeAt(0));
-    return bin.length >= 4 && bin[0] === 0x4c && bin[1] === 0x42 && bin[2] === 0x4f && bin[3] === 0x50;
-  } catch {
-    return false;
+  if (!code) return null;
+  if (code.binaryData && code.binaryData.length > 0) {
+    return Uint8Array.from(code.binaryData);
   }
+  return new TextEncoder().encode(code.data);
 }
 
 async function scanFrameDir(
@@ -170,18 +165,17 @@ async function scanFrameDir(
 
   for (let i = 0; i < files.length; i++) {
     report.framesScanned++;
-    let text: string | null = null;
+    let payload: Uint8Array | null = null;
     try {
-      text = await decodeQrFromImage(join(dir, files[i]));
+      payload = await decodeQrFromImage(join(dir, files[i]));
     } catch {
       continue;
     }
-    if (!text) continue;
+    if (!payload) continue;
     report.qrHits++;
     lastQrAt = i;
-    if (!looksLikeLbopBase64(text)) continue;
     try {
-      const ok = session.ingestBase64(text);
+      const ok = session.ingestQrPayload(payload);
       if (ok) report.lbopUseful++;
     } catch {
       /* ignore non-LBOP */

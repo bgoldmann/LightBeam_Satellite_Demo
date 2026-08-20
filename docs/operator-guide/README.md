@@ -15,9 +15,10 @@
 
 | Profile | Use |
 |---------|-----|
-| Studio Demo | Lab / room demos, max reliability, ≤2 MB |
-| Satellite Safe | First on-air candidate, ≤5 MB |
-| Lab High Speed | Experimental; not for first broadcast |
+| A Ultra Fast (Lab) | Room demos — 4 QRs per frame, default |
+| B Studio | One large code, high margin, ≤2 MB |
+| C Satellite Safe | First on-air candidate, ≤5 MB |
+| D Archive | Difficult channels, extra hold |
 
 ## Privacy
 

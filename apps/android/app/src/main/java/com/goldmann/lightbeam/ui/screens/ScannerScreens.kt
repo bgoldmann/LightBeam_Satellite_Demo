@@ -48,7 +48,7 @@ import com.goldmann.lightbeam.ui.SessionProgress
 @Composable
 fun ScannerScreen(
     snapshot: SessionSnapshot,
-    onQr: (String) -> Unit,
+    onQr: (ByteArray) -> Unit,
     onReset: () -> Unit,
     onComplete: () -> Unit,
     onBack: () -> Unit,
@@ -113,7 +113,7 @@ fun ScannerScreen(
                 .fillMaxWidth(),
         ) {
             val previewView = remember { PreviewView(context) }
-            val controller = remember { ScannerController(onQrDetected = onQr) }
+            val controller = remember { ScannerController(onQrPayload = onQr) }
             var torchOn by remember { mutableStateOf(false) }
 
             DisposableEffect(lifecycleOwner) {

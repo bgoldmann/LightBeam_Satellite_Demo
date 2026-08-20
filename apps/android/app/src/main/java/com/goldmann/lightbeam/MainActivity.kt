@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
                     composable(Screen.Scanner.route) {
                         ScannerScreen(
                             snapshot = snapshot,
-                            onQr = { viewModel.onQrDetected(it) },
+                            onQr = { viewModel.onQrPayload(it) },
                             onReset = viewModel::resetSession,
                             onComplete = { navController.navigate(Screen.Completion.route) },
                             onBack = { navController.popBackStack() },

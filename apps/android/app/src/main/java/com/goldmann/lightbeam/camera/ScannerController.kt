@@ -10,15 +10,12 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
+import zxingcpp.BarcodeReader
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ScannerController(
-    private val onQrDetected: (String) -> Unit,
+    private val onQrPayload: (ByteArray) -> Unit,
 ) {
     private val executor = Executors.newSingleThreadExecutor()
     private val processing = AtomicBoolean(false)
@@ -26,10 +23,15 @@ class ScannerController(
     private var cameraProvider: ProcessCameraProvider? = null
     private var torchOn = false
 
-    private val scanner = BarcodeScanning.getClient(
-        BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .build(),
+    private val reader = BarcodeReader(
+        BarcodeReader.Options(
+            formats = setOf(BarcodeReader.Format.QR_CODE),
+            tryHarder = true,
+            tryRotate = false,
+            tryInvert = true,
+            tryDownscale = true,
+            maxNumberOfSymbols = 8,
+        ),
     )
 
     fun bind(
@@ -88,23 +90,24 @@ class ScannerController(
             imageProxy.close()
             return
         }
-        val mediaImage = imageProxy.image
-        if (mediaImage == null) {
+        try {
+            val results = reader.read(imageProxy)
+            for (result in results) {
+                val bytes = result.bytes
+                if (bytes != null && bytes.isNotEmpty()) {
+                    onQrPayload(bytes)
+                } else {
+                    val text = result.text
+                    if (!text.isNullOrEmpty()) {
+                        onQrPayload(text.toByteArray(Charsets.US_ASCII))
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            /* drop frame */
+        } finally {
             processing.set(false)
             imageProxy.close()
-            return
         }
-        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-        scanner.process(image)
-            .addOnSuccessListener { barcodes ->
-                val best = barcodes.maxByOrNull { barcode ->
-                    barcode.boundingBox?.let { it.width() * it.height() } ?: 0
-                }
-                best?.rawValue?.let(onQrDetected)
-            }
-            .addOnCompleteListener {
-                processing.set(false)
-                imageProxy.close()
-            }
     }
 }

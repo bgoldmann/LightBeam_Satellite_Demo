@@ -21,6 +21,9 @@ packages:
   zstd:
     url: https://github.com/facebook/zstd
     from: 1.5.6
+  zxing-cpp:
+    url: https://github.com/zxing-cpp/zxing-cpp
+    from: 2.3.0
 
 targets:
   LightBeam:
@@ -40,9 +43,13 @@ targets:
         ENABLE_PREVIEWS: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
         OTHER_LDFLAGS: "$(inherited) -lz"
+        CLANG_CXX_LANGUAGE_STANDARD: c++20
+        CLANG_CXX_LIBRARY: libc++
     dependencies:
       - package: zstd
         product: libzstd
+      - package: zxing-cpp
+        product: ZXingCpp
 
   LightBeamTests:
     type: bundle.unit-test

@@ -1,7 +1,7 @@
 import AVFoundation
 import CoreImage
 import Foundation
-import Vision
+import ZXingCpp
 
 enum VideoDecodeOutcome: String {
     case verified
@@ -44,7 +44,7 @@ enum VideoFrameSampler {
     /// Upscales when short side < 720. Completes with a structured report.
     static func sampleQRStrings(
         from url: URL,
-        onFrame: @escaping (_ qr: String) -> Bool,
+        onFrame: @escaping (_ qr: Data) -> Bool,
         onProgress: @escaping (_ framesScanned: Int, _ qrHits: Int) -> Void,
         completion: @escaping (Result<VideoDecodeReport, Error>) -> Void
     ) {
@@ -101,14 +101,17 @@ enum VideoFrameSampler {
                     if pts < nextSampleTime { continue }
 
                     framesScanned += 1
-                    if let qr = await extractQR(from: sample, width: width, height: height) {
-                        qrHits += 1
+                    let payloads = await extractQRs(from: sample, width: width, height: height)
+                    if !payloads.isEmpty {
+                        qrHits += payloads.count
                         sawQr = true
                         sampleInterval = CMTime(seconds: 1.0 / 30.0, preferredTimescale: 600)
-                        if looksLikeLbop(qr) {
-                            sawLbop = true
-                            let useful = await MainActor.run { onFrame(qr) }
-                            if useful { lbopUseful += 1 }
+                        for qr in payloads {
+                            if looksLikeLbop(qr) {
+                                sawLbop = true
+                                let useful = await MainActor.run { onFrame(qr) }
+                                if useful { lbopUseful += 1 }
+                            }
                         }
                     }
                     await MainActor.run { onProgress(framesScanned, qrHits) }
@@ -149,7 +152,7 @@ enum VideoFrameSampler {
     /// Backward-compatible wrapper used by older call sites.
     static func sampleQRStrings(
         from url: URL,
-        onFrame: @escaping (String) -> Void,
+        onFrame: @escaping (Data) -> Void,
         completion: @escaping (Result<Int, Error>) -> Void
     ) {
         sampleQRStrings(
@@ -170,12 +173,25 @@ enum VideoFrameSampler {
         )
     }
 
-    private static func looksLikeLbop(_ text: String) -> Bool {
-        guard let data = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            return false
+    private static let zxingReader: ZXIBarcodeReader = {
+        let opts = ZXIReaderOptions()
+        opts.tryHarder = true
+        opts.tryInvert = true
+        opts.maxNumberOfSymbols = 8
+        opts.formats = [NSNumber(value: ZXIFormat.QR_CODE.rawValue)]
+        return ZXIBarcodeReader(options: opts)
+    }()
+
+    private static func looksLikeLbop(_ data: Data) -> Bool {
+        if data.count >= 4,
+           data[0] == 0x4C, data[1] == 0x42, data[2] == 0x4F, data[3] == 0x50 {
+            return true
         }
-        guard data.count >= 4 else { return false }
-        return data[0] == 0x4C && data[1] == 0x42 && data[2] == 0x4F && data[3] == 0x50 // LBOP
+        guard let text = String(data: data, encoding: .ascii),
+              let decoded = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines))
+        else { return false }
+        guard decoded.count >= 4 else { return false }
+        return decoded[0] == 0x4C && decoded[1] == 0x42 && decoded[2] == 0x4F && decoded[3] == 0x50
     }
 
     private static func codecName(from descriptions: [CMFormatDescription]) -> String? {
@@ -190,33 +206,24 @@ enum VideoFrameSampler {
         return String(bytes: chars, encoding: .ascii)
     }
 
-    private static func extractQR(from sample: CMSampleBuffer, width: Int, height: Int) async -> String? {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { return nil }
-
+    private static func extractQRs(from sample: CMSampleBuffer, width: Int, height: Int) async -> [Data] {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { return [] }
         let shortSide = min(width, height)
-        let handler: VNImageRequestHandler
+        var error: NSError?
+        let raw: NSArray?
         if shortSide > 0, shortSide < 720 {
             let ci = CIImage(cvPixelBuffer: pixelBuffer)
             let scale = 720.0 / CGFloat(shortSide)
             let scaled = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            handler = VNImageRequestHandler(ciImage: scaled, options: [:])
+            raw = zxingReader.read(scaled, error: &error)
         } else {
-            handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            raw = zxingReader.readCVPixelBuffer(pixelBuffer, error: &error)
         }
-
-        return await withCheckedContinuation { continuation in
-            let request = VNDetectBarcodesRequest { request, _ in
-                let results = (request.results as? [VNBarcodeObservation]) ?? []
-                // Prefer largest QR by bounding box area
-                let best = results.max(by: { a, b in
-                    let aa = a.boundingBox.width * a.boundingBox.height
-                    let bb = b.boundingBox.width * b.boundingBox.height
-                    return aa < bb
-                })
-                continuation.resume(returning: best?.payloadStringValue)
-            }
-            request.symbologies = [.qr]
-            try? handler.perform([request])
+        let results = raw as? [ZXIResult] ?? []
+        return results.compactMap { result in
+            if result.bytes.count > 0 { return result.bytes }
+            if !result.text.isEmpty { return Data(result.text.utf8) }
+            return nil
         }
     }
 }

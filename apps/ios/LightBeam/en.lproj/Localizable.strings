@@ -23,7 +23,7 @@
 
 "scanner.sessionCode" = "Session %@";
 "scanner.hits" = "QR seen: %d · LBOP: %d · last len: %d";
-"scanner.keepScanning" = "Keep pointing — new codes are still needed to finish.";
+"scanner.keepScanning" = "Keep the camera on every QR — Lab shows four codes at once.";
 "scanner.cameraDenied" = "Camera access denied. Enable it in Settings → LightBeam.";
 
 "decode.subtitle" = "Import a screen recording or exported LightBeam video to decode LBOP frames offline.";
@@ -64,7 +64,7 @@
 
 "how.intro" = "LightBeam transmits files as a loop of QR codes using the LBOP/1 optical protocol.";
 "how.step1" = "A web encoder packages your file with fountain codes and signs a CBOR manifest.";
-"how.step2" = "Each QR code carries one base64-encoded LBOP frame (beacon, manifest, or data).";
+"how.step2" = "Each video frame carries one or more byte-mode LBOP QR codes. Lab uses four codes per frame. Older Base64 codes still decode.";
 "how.step3" = "This app scans frames, reconstructs the payload with LT decoding, and verifies SHA-256.";
 "how.step4" = "Verified files are saved locally and can be shared — no network required.";
 
