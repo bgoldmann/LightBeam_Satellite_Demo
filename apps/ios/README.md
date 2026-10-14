@@ -55,7 +55,8 @@ xcodebuild \
 - **Minimum iOS:** 16
 - **Camera:** `NSCameraUsageDescription` for offline QR reception
 - **No network calls** in app code
-- **QR format:** base64-encoded LBOP frame bytes (matches web encoder)
+- **QR format:** byte-mode LBOP frames (Lab: four codes/frame); legacy Base64 still accepted
+- **SPM note:** `./generate.sh` patches zxing-cpp’s module map to silence incomplete-umbrella warnings from ObjC++ helper headers
 - **Progress stages:** Searching → Session found → Reading manifest → Collecting data → Reconstructing → Verifying → Complete
 - **Verified files** saved under Documents and shared via `ShareLink`
 

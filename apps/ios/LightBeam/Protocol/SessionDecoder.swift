@@ -201,12 +201,14 @@ final class SessionDecoder: ObservableObject {
             if let info = BeaconInfo.decode(from: frame.payload) {
                 beacon = info
                 seenFrameKeys.insert(key)
-                // Eager LT from beacon so early data symbols aren't lost.
-                if ltDecoder == nil, info.blockCount > 0, info.blockSize > 0 {
+                // Eager LT only when beacon carries encoded_len (post-compression).
+                // Using original_len here breaks hash verify on compressed transfers.
+                let fountainLen = info.fountainPayloadLen
+                if ltDecoder == nil, info.blockCount > 0, info.blockSize > 0, fountainLen > 0 {
                     ltDecoder = LtDecoder(
                         k: info.blockCount,
                         blockSize: info.blockSize,
-                        originalLen: info.originalLen
+                        originalLen: fountainLen
                     )
                     flushPreManifestBuffer()
                 }
@@ -221,6 +223,9 @@ final class SessionDecoder: ObservableObject {
                         blockSize: info.blockSize,
                         originalLen: info.encodedByteLength
                     )
+                } else {
+                    // Correct truncation if we started from beacon.
+                    ltDecoder?.setFountainPayloadLength(info.encodedByteLength)
                 }
                 flushPreManifestBuffer()
             }

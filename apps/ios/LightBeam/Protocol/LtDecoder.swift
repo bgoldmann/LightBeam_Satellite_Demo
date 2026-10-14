@@ -4,7 +4,8 @@ import Foundation
 final class LtDecoder {
     let k: Int
     let blockSize: Int
-    let originalLen: Int
+    /// Truncation length for reconstruct() — must be encoded (post-compression) byte length.
+    private(set) var originalLen: Int
 
     private var blocks: [Data?]
     private var pending: [PendingSymbol] = []
@@ -25,6 +26,12 @@ final class LtDecoder {
         self.originalLen = originalLen
         self.blocks = Array(repeating: nil, count: k)
         self.blockToPending = Array(repeating: [], count: k)
+    }
+
+    /// Correct truncation length once the manifest arrives (encoded_byte_length).
+    func setFountainPayloadLength(_ len: Int) {
+        guard len > 0 else { return }
+        originalLen = len
     }
 
     var usefulCount: Int { seenIds.count }

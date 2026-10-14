@@ -45,6 +45,16 @@ targets:
         OTHER_LDFLAGS: "$(inherited) -lz"
         CLANG_CXX_LANGUAGE_STANDARD: c++20
         CLANG_CXX_LIBRARY: libc++
+        # zstd SPM headers define visibility macros; Xcode 16+/26 wants them on the CLI.
+        OTHER_SWIFT_FLAGS: >-
+          $(inherited)
+          -Xcc -DZSTDLIB_VISIBLE=
+          -Xcc -DZSTDLIB_HIDDEN=
+          -Xcc -DZSTDERRORLIB_VISIBLE=
+          -Xcc -DZSTDERRORLIB_HIDDEN=
+          -Xcc -DZDICTLIB_VISIBLE=
+          -Xcc -DZDICTLIB_HIDDEN=
+          -Xcc -DZSTD_CLEVEL_DEFAULT=3
     dependencies:
       - package: zstd
         product: libzstd

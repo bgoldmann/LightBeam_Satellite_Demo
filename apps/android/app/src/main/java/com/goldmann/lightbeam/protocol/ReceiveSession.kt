@@ -215,9 +215,11 @@ class ReceiveSession {
         if (phase == SessionPhase.Idle || phase == SessionPhase.WaitingBeacon) {
             phase = SessionPhase.WaitingManifest
         }
-        // Eager LT from beacon so early data symbols aren't lost.
-        if (decoder == null && parsed.blockCount > 0 && parsed.blockSize > 0) {
-            decoder = LtDecoder(parsed.blockCount, parsed.blockSize, parsed.originalLen.toInt())
+        // Eager LT only when beacon carries encoded_len (post-compression).
+        // Using original_len breaks hash verify on compressed transfers.
+        val fountainLen = parsed.fountainPayloadLen
+        if (decoder == null && parsed.blockCount > 0 && parsed.blockSize > 0 && fountainLen > 0) {
+            decoder = LtDecoder(parsed.blockCount, parsed.blockSize, fountainLen)
             flushPreManifestBuffer()
             phase = SessionPhase.Collecting
         }
@@ -241,6 +243,8 @@ class ReceiveSession {
         }
         if (decoder == null) {
             decoder = LtDecoder(blockCount, blockSize, encodedLen)
+        } else {
+            decoder?.setFountainPayloadLength(encodedLen)
         }
         flushPreManifestBuffer()
         phase = SessionPhase.Collecting
@@ -330,6 +334,11 @@ class ReceiveSession {
             val hash = sha256Hex(encodedBytes)
             val verified = payloadHash != null && hash.equals(payloadHash, ignoreCase = true)
             hashVerified = verified
+            if (!verified) {
+                phase = SessionPhase.Failed
+                statusMessage = "Payload hash mismatch"
+                return false
+            }
             var recovered = when (man?.compression) {
                 "deflate" -> inflateZlib(encodedBytes)
                 "zstd" -> {
@@ -356,15 +365,14 @@ class ReceiveSession {
             if (trust == TrustState.VerificationFailed) {
                 phase = SessionPhase.Failed
                 statusMessage = "Publisher signature verification failed"
-                hashVerified = verified
                 trustState = trust
                 return false
             }
             recoveredBytes = recovered
             trustState = trust
             phase = SessionPhase.Complete
-            statusMessage = if (verified) "hash_ok" else "hash_mismatch"
-            verified
+            statusMessage = "hash_ok"
+            true
         } catch (e: Exception) {
             phase = SessionPhase.Failed
             statusMessage = e.message

@@ -9,3 +9,9 @@ fi
 
 xcodegen generate
 echo "Generated LightBeam.xcodeproj"
+
+# Resolve SPM (non-fatal if Xcode/signing env is incomplete) then patch known upstream noise.
+if command -v xcodebuild >/dev/null 2>&1; then
+  xcodebuild -resolvePackageDependencies -project LightBeam.xcodeproj -scheme LightBeam >/dev/null 2>&1 || true
+fi
+bash scripts/patch-spm-checkouts.sh

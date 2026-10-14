@@ -1,0 +1,8 @@
+// Local override for zxing-cpp 2.3.0.
+// Upstream uses `umbrella header` + `module *`, which triggers incomplete-umbrella
+// warnings for ObjC++ helper headers (ZXIPosition+Helper.h, ZXIFormatHelper.h)
+// that must stay out of the Swift-facing API.
+module ZXingCpp {
+    header "UmbrellaHeader.h"
+    export *
+}

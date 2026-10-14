@@ -78,9 +78,15 @@ data class BeaconPayload(
     val blockCount: Int,
     val blockSize: Int,
     val originalLen: Long,
+    /** Post-compression fountain payload length. Prefer over originalLen for LT. */
+    val encodedLen: Long = 0,
     val payloadHash: String,
     val shortCode: String,
-)
+) {
+    /** Length the LT decoder should truncate to; 0 means wait for manifest. */
+    val fountainPayloadLen: Int
+        get() = if (encodedLen > 0) encodedLen.toInt() else 0
+}
 
 data class ManifestInfo(
     val filename: String,

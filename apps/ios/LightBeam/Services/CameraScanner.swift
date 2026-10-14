@@ -191,7 +191,7 @@ final class CameraScanner: NSObject, ObservableObject {
             let minDuration = device.activeFormat.minExposureDuration
             let duration = CMTimeCompare(maxDuration, minDuration) > 0 ? maxDuration : minDuration
             let iso = min(max(device.iso, device.activeFormat.minISO), device.activeFormat.maxISO)
-            try? device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
+            device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
         } else if device.isExposureModeSupported(.continuousAutoExposure) {
             // Bias toward shorter exposure when custom mode is unavailable.
             device.setExposureTargetBias(-1.0, completionHandler: nil)

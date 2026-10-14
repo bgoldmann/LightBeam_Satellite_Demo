@@ -114,7 +114,9 @@ enum VideoFrameSampler {
                             }
                         }
                     }
-                    await MainActor.run { onProgress(framesScanned, qrHits) }
+                    let framesSnapshot = framesScanned
+                    let qrSnapshot = qrHits
+                    await MainActor.run { onProgress(framesSnapshot, qrSnapshot) }
                     nextSampleTime = CMTimeAdd(pts, sampleInterval)
 
                     // Early stop: 8s of content with no QR

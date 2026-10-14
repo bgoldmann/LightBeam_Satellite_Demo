@@ -57,7 +57,7 @@ enum FileStore {
         if (try? FileManager.default.contentsOfDirectory(atPath: parent.path))?.isEmpty == true {
             try? FileManager.default.removeItem(at: parent)
         }
-        var records = loadRecords().filter { $0.id != record.id }
+        let records = loadRecords().filter { $0.id != record.id }
         let data = try JSONEncoder().encode(records)
         try data.write(to: indexURL, options: .atomic)
     }

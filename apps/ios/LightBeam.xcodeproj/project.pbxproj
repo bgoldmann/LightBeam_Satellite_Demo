@@ -365,6 +365,7 @@
 				INFOPLIST_FILE = LightBeam/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_LDFLAGS = "$(inherited) -lz";
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -DZSTDLIB_VISIBLE= -Xcc -DZSTDLIB_HIDDEN= -Xcc -DZSTDERRORLIB_VISIBLE= -Xcc -DZSTDERRORLIB_HIDDEN= -Xcc -DZDICTLIB_VISIBLE= -Xcc -DZDICTLIB_HIDDEN= -Xcc -DZSTD_CLEVEL_DEFAULT=3";
 				PRODUCT_BUNDLE_IDENTIFIER = com.goldmannllc.LightBeam;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -401,6 +402,7 @@
 				INFOPLIST_FILE = LightBeam/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_LDFLAGS = "$(inherited) -lz";
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -DZSTDLIB_VISIBLE= -Xcc -DZSTDLIB_HIDDEN= -Xcc -DZSTDERRORLIB_VISIBLE= -Xcc -DZSTDERRORLIB_HIDDEN= -Xcc -DZDICTLIB_VISIBLE= -Xcc -DZDICTLIB_HIDDEN= -Xcc -DZSTD_CLEVEL_DEFAULT=3";
 				PRODUCT_BUNDLE_IDENTIFIER = com.goldmannllc.LightBeam;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";

@@ -251,6 +251,8 @@ export class EncodeSession {
       block_count: blockCount,
       block_size: blockSize,
       original_len: fileBytes.length,
+      /** Fountain payload length (post-compression). Receivers must use this for LT, not original_len. */
+      encoded_len: payload.length,
       payload_hash: payloadHash,
       short_code: sessionShortCode(sessionId),
     };

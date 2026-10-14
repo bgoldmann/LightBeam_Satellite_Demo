@@ -60,8 +60,15 @@ fun neighborsFromSeed(seed: Int, k: Int, degree: Int): IntArray {
 class LtDecoder(
     val k: Int,
     val blockSize: Int,
-    val originalLen: Int,
+    originalLen: Int,
 ) {
+    /** Truncation length for reconstruct() — must be encoded (post-compression) size. */
+    var originalLen: Int = originalLen
+        private set
+
+    fun setFountainPayloadLength(len: Int) {
+        if (len > 0) originalLen = len
+    }
     private val blocks: Array<ByteArray?> = arrayOfNulls(k)
     private val pending = mutableListOf<PendingSymbol>()
     private val blockToPending: Array<MutableList<Int>> = Array(k) { mutableListOf() }
