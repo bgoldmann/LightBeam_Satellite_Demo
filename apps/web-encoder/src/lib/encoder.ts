@@ -44,14 +44,15 @@ export const PROFILES: Record<ProfileId, BroadcastProfile> = {
     id: "lab",
     letter: "A",
     label: "A — Ultra Fast (Lab)",
-    fps: 60,
+    // 15 ticks/s: a 30–60 fps phone camera needs ≥2 frames per tick to get one untorn shot.
+    fps: 30,
     holdFrames: 2,
     blockSize: 768,
     redundancy: 0.25,
     qrEcc: "L",
     maxFileMb: 25,
     tiles: 4,
-    description: "Four binary QRs per frame × 30 unique ticks/s — Decimen-style multiplex",
+    description: "Four binary QRs per frame × 15 unique ticks/s — Decimen-style multiplex",
   },
   studio: {
     id: "studio",

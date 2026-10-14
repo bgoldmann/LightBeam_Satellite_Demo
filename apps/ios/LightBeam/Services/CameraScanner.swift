@@ -27,7 +27,6 @@ final class CameraScanner: NSObject, ObservableObject {
     private var isConfigured = false
     private var interruptionObserver: NSObjectProtocol?
     private var videoOutput: AVCaptureVideoDataOutput?
-    private var lastDecodeTime = CFAbsoluteTimeGetCurrent()
     private var recentEmits: [Data: CFAbsoluteTime] = [:]
     private var device: AVCaptureDevice?
     private var noHitSince = CFAbsoluteTimeGetCurrent()
@@ -113,13 +112,13 @@ final class CameraScanner: NSObject, ObservableObject {
     private func configureIfNeeded() {
         guard !isConfigured else { return }
         session.beginConfiguration()
-        // 720p is enough for Lab 4-tile and avoids jetsam from zxing on 1080p buffers.
-        if session.canSetSessionPreset(.hd1280x720) {
+        // Lab data QRs are version 20 (97 modules) ×4 tiles; 720p leaves <3 px/module.
+        if session.canSetSessionPreset(.hd1920x1080) {
+            session.sessionPreset = .hd1920x1080
+        } else if session.canSetSessionPreset(.hd1280x720) {
             session.sessionPreset = .hd1280x720
-        } else if session.canSetSessionPreset(.high) {
-            session.sessionPreset = .high
         } else {
-            session.sessionPreset = .medium
+            session.sessionPreset = .high
         }
 
         guard
@@ -158,7 +157,8 @@ final class CameraScanner: NSObject, ObservableObject {
         try? device.lockForConfiguration()
         defer { device.unlockForConfiguration() }
 
-        // Prefer ~720p @ 30 fps — enough for Lab, far less memory pressure than 1080p60.
+        // Prefer 1080p @ 60 fps so each 66 ms encoder tick lands in ~4 frames and at
+        // least one is untorn. Late frames are dropped, so 60 fps adds no decode backlog.
         var best: AVCaptureDevice.Format?
         var bestScore: Double = -1
         for format in device.formats {
@@ -166,11 +166,10 @@ final class CameraScanner: NSObject, ObservableObject {
             guard dims.width >= 1280, dims.height >= 720 else { continue }
             guard dims.width <= 1920, dims.height <= 1080 else { continue }
             for range in format.videoSupportedFrameRateRanges {
-                let fps = min(30.0, range.maxFrameRate)
-                guard fps >= 24 else { continue }
-                // Prefer closer to 1280×720.
-                let resoPenalty = abs(Double(dims.width) - 1280) + abs(Double(dims.height) - 720)
-                let score = fps * 10 - resoPenalty / 100
+                let fps = min(60.0, range.maxFrameRate)
+                guard fps >= 30 else { continue }
+                let resoBonus = Double(dims.width * dims.height) / Double(1920 * 1080)
+                let score = fps + resoBonus * 40
                 if score > bestScore {
                     best = format
                     bestScore = score
@@ -179,7 +178,9 @@ final class CameraScanner: NSObject, ObservableObject {
         }
         if let best {
             device.activeFormat = best
-            let duration = CMTime(value: 1, timescale: 30)
+            let maxFps = best.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30
+            let fps = Int32(min(60.0, maxFps))
+            let duration = CMTime(value: 1, timescale: fps)
             device.activeVideoMinFrameDuration = duration
             device.activeVideoMaxFrameDuration = duration
         }
@@ -190,10 +191,17 @@ final class CameraScanner: NSObject, ObservableObject {
         if device.isAutoFocusRangeRestrictionSupported {
             device.autoFocusRangeRestriction = .near
         }
-        // Continuous AE — custom 1/250 underexposes TV screens and only the small beacon survives.
+        // Auto exposure, but capped so one frame can't integrate across two QR ticks.
+        // A fixed 1/250 s underexposed screens; a cap lets AE stay bright when it can.
         if device.isExposureModeSupported(.continuousAutoExposure) {
             device.exposureMode = .continuousAutoExposure
-            device.setExposureTargetBias(-0.35, completionHandler: nil)
+            let cap = CMTime(value: 1, timescale: 120)
+            let minDur = device.activeFormat.minExposureDuration
+            let maxDur = device.activeFormat.maxExposureDuration
+            if CMTimeCompare(cap, minDur) >= 0, CMTimeCompare(cap, maxDur) <= 0 {
+                device.activeMaxExposureDuration = cap
+            }
+            device.setExposureTargetBias(-0.3, completionHandler: nil)
         }
         if device.isLowLightBoostSupported {
             device.automaticallyEnablesLowLightBoostWhenAvailable = false
@@ -229,11 +237,8 @@ extension CameraScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         let now = CFAbsoluteTimeGetCurrent()
-        // ~20 fps decode budget.
-        guard now - lastDecodeTime >= 0.05 else { return }
-        // Drop if previous zxing call still running — prevents queue pileup → jetsam.
+        // Decode as fast as zxing allows; drop if previous call still running (no pileup).
         guard decodeLock.wait(timeout: .now()) == .success else { return }
-        lastDecodeTime = now
         defer { decodeLock.signal() }
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -246,7 +251,7 @@ extension CameraScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         let t0 = CFAbsoluteTimeGetCurrent()
         // Prefer luminance-plane path (not CIImage gray allocate).
-        let results = (try? zxingReader.readCVPixelBuffer(pixelBuffer)) ?? []
+        let results = (try? zxingReader.read(pixelBuffer)) ?? []
         let decodeMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
 
         var count = 0

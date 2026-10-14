@@ -15,8 +15,9 @@ export type PlayoutStatus = {
  * Live playout paints **new fountain symbols forever** (never reuses symbol IDs).
  * Lab profile may emit several QR tiles per video frame (spatial multiplex).
  *
- * Timing uses requestAnimationFrame + vsync frame counting so each QR tick
- * stays up for exactly `holdFrames` refreshes without setTimeout drift.
+ * Timing is wall-clock (`holdFrames / fps` per tick), checked on each
+ * requestAnimationFrame. Counting vsyncs instead would double the tick rate
+ * on 120 Hz displays and outrun the phone camera.
  */
 export class LoopingQrPlayout {
   private raf: number | null = null;
@@ -31,7 +32,7 @@ export class LoopingQrPlayout {
     prepared?: ReturnType<typeof QRCode.create>[],
   ) => void;
   private cycleLen = 1;
-  private framesUntilNext = 0;
+  private nextTickAt = 0;
   private prepared: ReturnType<typeof QRCode.create>[] | null = null;
 
   constructor(
@@ -54,7 +55,7 @@ export class LoopingQrPlayout {
     await this.stop();
     this.running = true;
     this.index = 0;
-    this.framesUntilNext = 0;
+    this.nextTickAt = 0;
     const tiles = Math.max(1, this.session.profile.tiles);
     this.cycleLen = Math.max(
       1,
@@ -97,10 +98,13 @@ export class LoopingQrPlayout {
     return this.running;
   }
 
-  private onFrame(_now: number): void {
+  private onFrame(now: number): void {
     if (!this.running) return;
 
-    if (this.framesUntilNext <= 0) {
+    const profile = this.session.profile;
+    const tickMs = (Math.max(1, profile.holdFrames) * 1000) / Math.max(1, profile.fps);
+    // Half-refresh tolerance so rAF jitter doesn't add a whole extra frame per tick.
+    if (now + 4 >= this.nextTickAt) {
       const loopIndex = Math.floor(this.index / this.cycleLen) + 1;
       const loopPct = Math.round((((this.index % this.cycleLen) + 1) / this.cycleLen) * 100);
       const qrs = this.prepared;
@@ -131,12 +135,12 @@ export class LoopingQrPlayout {
         void this.acquireWakeLock();
       }
 
-      // Hold for exactly holdFrames vsync refreshes at the profile fps.
-      // On a 60 Hz display with fps=60 holdFrames=2 → switch every 2 frames.
-      this.framesUntilNext = Math.max(1, this.session.profile.holdFrames);
+      // Re-anchor after stalls (tab hidden, slow paint) instead of bursting ticks.
+      this.nextTickAt = this.nextTickAt > 0 && now - this.nextTickAt < tickMs
+        ? this.nextTickAt + tickMs
+        : now + tickMs;
     }
 
-    this.framesUntilNext--;
     this.raf = requestAnimationFrame((t) => this.onFrame(t));
   }
 

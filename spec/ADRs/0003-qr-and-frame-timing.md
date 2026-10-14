@@ -29,7 +29,7 @@
 |---------|-----|------|-------|--------------------|-------|
 | Studio | 30 | 2 | 1 | 15 Hz | Single large code |
 | Satellite Safe | 30 (25 playout variant) | 3 | 1 | 10 Hz | Extra hold for re-encode |
-| Lab | 60 | 2 | 4 | 120 Hz (30 display ticks/s × 4) | Room HDMI / laptop |
+| Lab | 30 | 2 | 4 | 60 Hz (15 display ticks/s × 4) | Room HDMI / laptop; 30 ticks/s outran 30–60 fps phone cameras |
 | Archive | 25 | 4 | 1 | 6.25 Hz | Conservative |
 
 ## Measured targets to fill in field tests
@@ -37,4 +37,5 @@
 - Laptop → phone useful-symbol rate: measure during device matrix
 - HDMI TV loss rate at 1.5 m / 3 m: measure
 - After H.264 re-encode: measure
-- Lab theoretical goodput after LT fix: ~65–70 KB/s (30 ticks/s × 4 × 768 B × 0.97 data share ÷ 1.25 overhead)
+- Lab theoretical goodput: ~35 KB/s (15 ticks/s × 4 × 768 B × 0.94 data share ÷ 1.25 overhead)
+- Playout ticks are wall-clock (`holdFrames / fps`), not vsync counts, so 120 Hz displays don't double the rate
