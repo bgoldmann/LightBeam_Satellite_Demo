@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.goldmann.lightbeam.R
+import com.goldmann.lightbeam.camera.ScanFrameStats
 import com.goldmann.lightbeam.camera.ScannerController
 import com.goldmann.lightbeam.protocol.MediaTypes
 import com.goldmann.lightbeam.protocol.SessionPhase
@@ -48,7 +49,9 @@ import com.goldmann.lightbeam.ui.SessionProgress
 @Composable
 fun ScannerScreen(
     snapshot: SessionSnapshot,
+    frameStats: ScanFrameStats = ScanFrameStats(0.0, 0),
     onQr: (ByteArray) -> Unit,
+    onFrameStats: (ScanFrameStats) -> Unit = {},
     onReset: () -> Unit,
     onComplete: () -> Unit,
     onBack: () -> Unit,
@@ -113,12 +116,17 @@ fun ScannerScreen(
                 .fillMaxWidth(),
         ) {
             val previewView = remember { PreviewView(context) }
-            val controller = remember { ScannerController(onQrPayload = onQr) }
+            val controller = remember {
+                ScannerController(
+                    onQrPayload = onQr,
+                    onFrameStats = onFrameStats,
+                )
+            }
             var torchOn by remember { mutableStateOf(false) }
 
             DisposableEffect(lifecycleOwner) {
                 controller.bind(lifecycleOwner, previewView)
-                onDispose { controller.unbind() }
+                onDispose { controller.shutdown() }
             }
 
             AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
@@ -160,6 +168,16 @@ fun ScannerScreen(
                 resolved = snapshot.resolvedBlocks,
                 total = snapshot.blockCount,
                 percent = snapshot.progressPercent,
+            )
+            Text(
+                "decode %.0fms · %d QR/frame · %.0f sym/s · dup %.0f%%".format(
+                    frameStats.decodeMs,
+                    frameStats.qrCount,
+                    snapshot.uniqueSymbolsPerSec,
+                    snapshot.duplicateRate * 100,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF22D3EE),
             )
         }
     }

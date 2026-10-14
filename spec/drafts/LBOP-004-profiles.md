@@ -26,9 +26,15 @@ Encoders **SHOULD** emit the code id in Beacon `profile`. Receivers **MUST** acc
 
 Block size and count in the **Manifest** are authoritative for decode.
 
+The profile `redundancy` column is a playout planning hint. Fountain recovery uses a
+corrected robust-soliton degree distribution with expected peel overhead ≈ **1.25×k**
+(independent of the legacy redundancy knobs). Lab control overhead (beacon+manifest)
+is ≈ **3%** of tiles.
+
 ## 3. Selection guidance
 
 - First on-air demos: **C**
 - Room / studio demos: **A** (four QRs × 30 unique display ticks/s) or **B**
 - Lab speed experiments: **A**. If codes fail at distance, drop to **B** (one larger code).
 - Long-lived archival loops / difficult channels: **D**
+

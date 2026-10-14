@@ -176,7 +176,7 @@ enum VideoFrameSampler {
     private static let zxingReader: ZXIBarcodeReader = {
         let opts = ZXIReaderOptions()
         opts.tryHarder = true
-        opts.tryInvert = true
+        opts.tryInvert = false
         opts.maxNumberOfSymbols = 8
         opts.formats = [NSNumber(value: ZXIFormat.QR_CODE.rawValue)]
         return ZXIBarcodeReader(options: opts)

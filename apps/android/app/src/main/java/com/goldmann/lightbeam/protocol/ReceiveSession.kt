@@ -29,10 +29,13 @@ data class SessionSnapshot(
     val payloadHash: String?,
     val recoveredBytes: ByteArray?,
     val trustState: TrustState?,
+    val uniqueSymbolsPerSec: Double = 0.0,
+    val duplicateRate: Double = 0.0,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is SessionSnapshot) return false
+        // Compare recoveredBytes by reference — full contentEquals on every publish is expensive.
         return phase == other.phase &&
             shortCode == other.shortCode &&
             title == other.title &&
@@ -47,8 +50,10 @@ data class SessionSnapshot(
             statusMessage == other.statusMessage &&
             hashVerified == other.hashVerified &&
             payloadHash == other.payloadHash &&
-            recoveredBytes.contentEquals(other.recoveredBytes) &&
-            trustState == other.trustState
+            recoveredBytes === other.recoveredBytes &&
+            trustState == other.trustState &&
+            uniqueSymbolsPerSec == other.uniqueSymbolsPerSec &&
+            duplicateRate == other.duplicateRate
     }
 
     override fun hashCode(): Int {
@@ -66,7 +71,7 @@ data class SessionSnapshot(
         result = 31 * result + (statusMessage?.hashCode() ?: 0)
         result = 31 * result + (hashVerified?.hashCode() ?: 0)
         result = 31 * result + (payloadHash?.hashCode() ?: 0)
-        result = 31 * result + (recoveredBytes?.contentHashCode() ?: 0)
+        result = 31 * result + System.identityHashCode(recoveredBytes)
         result = 31 * result + (trustState?.hashCode() ?: 0)
         return result
     }
@@ -82,6 +87,13 @@ class ReceiveSession {
     private var hashVerified: Boolean? = null
     private var recoveredBytes: ByteArray? = null
     private var trustState: TrustState? = null
+    private val preManifestBuffer = ArrayDeque<LbopFrame>()
+    private val maxPreManifestBuffer = 256
+    private var usefulInWindow = 0
+    private var duplicatesInWindow = 0
+    private var windowStartMs = System.currentTimeMillis()
+    private var uniqueSymbolsPerSec = 0.0
+    private var duplicateRate = 0.0
 
     fun reset() {
         lockedSessionId = null
@@ -93,6 +105,12 @@ class ReceiveSession {
         hashVerified = null
         recoveredBytes = null
         trustState = null
+        preManifestBuffer.clear()
+        usefulInWindow = 0
+        duplicatesInWindow = 0
+        windowStartMs = System.currentTimeMillis()
+        uniqueSymbolsPerSec = 0.0
+        duplicateRate = 0.0
     }
 
     fun snapshot(): SessionSnapshot {
@@ -125,6 +143,8 @@ class ReceiveSession {
             payloadHash = man?.payloadHash ?: bec?.payloadHash,
             recoveredBytes = recoveredBytes,
             trustState = trustState,
+            uniqueSymbolsPerSec = uniqueSymbolsPerSec,
+            duplicateRate = duplicateRate,
         )
     }
 
@@ -195,6 +215,12 @@ class ReceiveSession {
         if (phase == SessionPhase.Idle || phase == SessionPhase.WaitingBeacon) {
             phase = SessionPhase.WaitingManifest
         }
+        // Eager LT from beacon so early data symbols aren't lost.
+        if (decoder == null && parsed.blockCount > 0 && parsed.blockSize > 0) {
+            decoder = LtDecoder(parsed.blockCount, parsed.blockSize, parsed.originalLen.toInt())
+            flushPreManifestBuffer()
+            phase = SessionPhase.Collecting
+        }
         statusMessage = null
         return FrameResult.Accepted
     }
@@ -216,16 +242,25 @@ class ReceiveSession {
         if (decoder == null) {
             decoder = LtDecoder(blockCount, blockSize, encodedLen)
         }
+        flushPreManifestBuffer()
         phase = SessionPhase.Collecting
         statusMessage = null
         return FrameResult.Accepted
     }
 
     private fun ingestData(frame: LbopFrame): FrameResult {
-        val dec = decoder ?: run {
+        val dec = decoder
+        if (dec == null) {
+            if (preManifestBuffer.size < maxPreManifestBuffer) {
+                preManifestBuffer.addLast(frame)
+            }
             phase = SessionPhase.WaitingManifest
-            return FrameResult.Corrupt("manifest not yet received")
+            return FrameResult.Accepted
         }
+        return ingestDataInto(dec, frame)
+    }
+
+    private fun ingestDataInto(dec: LtDecoder, frame: LbopFrame): FrameResult {
         val dataPayload = try {
             LbopCodec.decodeDataPayload(frame.payload)
         } catch (e: Exception) {
@@ -238,8 +273,12 @@ class ReceiveSession {
             payload = dataPayload.symbolBytes,
         )
         return when (dec.ingest(symbol)) {
-            IngestResult.Duplicate -> FrameResult.Duplicate
+            IngestResult.Duplicate -> {
+                noteDuplicate()
+                FrameResult.Duplicate
+            }
             IngestResult.SeenUseless, IngestResult.Accepted -> {
+                noteUseful()
                 if (dec.isComplete) {
                     val completed = tryComplete()
                     FrameResult.Completed(completed)
@@ -248,6 +287,35 @@ class ReceiveSession {
                 }
             }
         }
+    }
+
+    private fun flushPreManifestBuffer() {
+        val dec = decoder ?: return
+        while (preManifestBuffer.isNotEmpty()) {
+            ingestDataInto(dec, preManifestBuffer.removeFirst())
+        }
+    }
+
+    private fun noteUseful() {
+        usefulInWindow++
+        updateRatesIfNeeded()
+    }
+
+    private fun noteDuplicate() {
+        duplicatesInWindow++
+        updateRatesIfNeeded()
+    }
+
+    private fun updateRatesIfNeeded() {
+        val now = System.currentTimeMillis()
+        val elapsed = (now - windowStartMs) / 1000.0
+        if (elapsed < 1.0) return
+        val total = usefulInWindow + duplicatesInWindow
+        uniqueSymbolsPerSec = usefulInWindow / elapsed
+        duplicateRate = if (total > 0) duplicatesInWindow.toDouble() / total else 0.0
+        usefulInWindow = 0
+        duplicatesInWindow = 0
+        windowStartMs = now
     }
 
     private fun tryComplete(): Boolean {

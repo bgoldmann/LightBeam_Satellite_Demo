@@ -1,5 +1,6 @@
 /** Encode → decompress + profile alias smoke for ACE / LBOP-004. */
 import { EncodeSession, resolveProfileId, PROFILES, lbopQrSegments } from "../src/lib/encoder";
+import { LtEncoder, LtDecoder, LT_OVERHEAD_FACTOR } from "../src/lib/fec";
 import QRCode from "qrcode";
 
 function assert(cond: boolean, msg: string) {
@@ -22,6 +23,7 @@ async function main() {
     language: "en",
     compress: true,
     profile: "A",
+    allowDemoSeed: true,
   });
 
   assert(session.info.publisherKeyId === "cf64d74ed0175771", "demo key id");
@@ -46,6 +48,21 @@ async function main() {
   assert(typeof qr.version === "number" && qr.version >= 1 && qr.version <= 40, "binary QR version");
   for (let i = 0; i < 15; i++) session.nextFrameBytes({ looping: false });
 
+  // LT overhead regression: fixed robust soliton should finish under 1.5×k.
+  const payload = new Uint8Array(200 * 64);
+  crypto.getRandomValues(payload);
+  const enc = new LtEncoder(payload, 64);
+  const dec = new LtDecoder(enc.k, 64, payload.length);
+  let n = 0;
+  const limit = Math.ceil(enc.k * 1.5);
+  while (!dec.isComplete && n < limit) {
+    dec.ingest(enc.symbolAt(n));
+    n++;
+  }
+  assert(dec.isComplete, `LT incomplete after ${n} symbols (k=${enc.k})`);
+  assert(n / enc.k < 1.5, `LT overhead ${n / enc.k} ≥ 1.5`);
+  assert(LT_OVERHEAD_FACTOR <= 1.3, "LT_OVERHEAD_FACTOR");
+
   console.log(
     "encode smoke OK",
     "profile",
@@ -54,6 +71,8 @@ async function main() {
     manifest.compression,
     "key",
     session.info.publisherKeyId,
+    "lt",
+    `${n}/${enc.k}=${(n / enc.k).toFixed(2)}`,
   );
 }
 

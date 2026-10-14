@@ -54,13 +54,26 @@ final class SessionDecoder: ObservableObject {
     @Published private(set) var shortCode: String?
     @Published private(set) var title: String?
     @Published private(set) var lastError: String?
+    @Published private(set) var completedResult: SessionDecodeResult?
+    @Published private(set) var uniqueSymbolsPerSec: Double = 0
+    @Published private(set) var duplicateRate: Double = 0
 
     private var sessionId: Data?
     private var beacon: BeaconInfo?
     private var manifest: ManifestInfo?
     private var ltDecoder: LtDecoder?
     private var seenFrameKeys = Set<String>()
+    private var preManifestBuffer: [LBOPFrame] = []
+    private let maxPreManifestBuffer = 256
     private let ingestQueue = DispatchQueue(label: "com.goldmannllc.LightBeam.decode", qos: .userInitiated)
+    private var lastPublishTime: CFAbsoluteTime = 0
+    private var pendingPublish = false
+    private var finalizeStarted = false
+
+    // Rate stats
+    private var usefulInWindow = 0
+    private var duplicatesInWindow = 0
+    private var windowStart = CFAbsoluteTimeGetCurrent()
 
     func reset() {
         ingestQueue.sync {
@@ -69,7 +82,15 @@ final class SessionDecoder: ObservableObject {
             manifest = nil
             ltDecoder = nil
             seenFrameKeys.removeAll()
+            preManifestBuffer.removeAll()
+            finalizeStarted = false
+            usefulInWindow = 0
+            duplicatesInWindow = 0
+            windowStart = CFAbsoluteTimeGetCurrent()
         }
+        completedResult = nil
+        uniqueSymbolsPerSec = 0
+        duplicateRate = 0
         publish(
             stage: .searching,
             progress: 0,
@@ -82,7 +103,7 @@ final class SessionDecoder: ObservableObject {
         )
     }
 
-    /// Live camera — async so metadata callbacks stay responsive.
+    /// Live camera — async so capture callbacks stay responsive.
     func ingestQRString(_ string: String) {
         ingestQRPayload(Data(string.utf8))
     }
@@ -91,20 +112,8 @@ final class SessionDecoder: ObservableObject {
         ingestQueue.async { [weak self] in
             guard let self else { return }
             let done = self.ingestPayloadOnQueue(data)
-            let snap = self.snapshotOnQueue()
-            DispatchQueue.main.async {
-                self.publish(
-                    stage: snap.stage,
-                    progress: snap.progress,
-                    symbols: snap.symbols,
-                    resolved: snap.resolved,
-                    blocks: snap.blocks,
-                    shortCode: snap.shortCode,
-                    title: snap.title,
-                    error: snap.error
-                )
-                if done { _ = self.tryFinalize() }
-            }
+            self.schedulePublish()
+            if done { self.startFinalizeOnQueue() }
         }
     }
 
@@ -119,6 +128,7 @@ final class SessionDecoder: ObservableObject {
         ingestQueue.sync {
             done = self.ingestPayloadOnQueue(data)
             snap = self.snapshotOnQueue()
+            if done { self.startFinalizeOnQueue() }
         }
         publish(
             stage: snap.stage,
@@ -130,7 +140,6 @@ final class SessionDecoder: ObservableObject {
             title: snap.title,
             error: snap.error
         )
-        if done { _ = tryFinalize() }
     }
 
     /// Used by golden tests with already-parsed frames.
@@ -140,6 +149,7 @@ final class SessionDecoder: ObservableObject {
         ingestQueue.sync {
             done = self.ingestFrameOnQueue(frame)
             snap = self.snapshotOnQueue()
+            if done { self.startFinalizeOnQueue() }
         }
         publish(
             stage: snap.stage,
@@ -151,7 +161,6 @@ final class SessionDecoder: ObservableObject {
             title: snap.title,
             error: snap.error
         )
-        if done { _ = tryFinalize() }
     }
 
     private struct Snap {
@@ -165,19 +174,21 @@ final class SessionDecoder: ObservableObject {
         var error: String?
     }
 
-    private func ingestStringOnQueue(_ string: String) -> Bool {
-        ingestPayloadOnQueue(Data(string.utf8))
-    }
-
     private func ingestPayloadOnQueue(_ data: Data) -> Bool {
         guard let frame = LBOPFrame.decodeFromQRPayload(data) else { return false }
         return ingestFrameOnQueue(frame)
     }
 
+    private func frameKey(_ frame: LBOPFrame) -> String {
+        "\(frame.frameType.rawValue)-\(frame.symbolId)-\(frame.payload.count)"
+    }
+
     private func ingestFrameOnQueue(_ frame: LBOPFrame) -> Bool {
-        let key = "\(frame.frameType.rawValue)-\(frame.symbolId)-\(frame.payload.count)"
-        guard !seenFrameKeys.contains(key) else { return false }
-        seenFrameKeys.insert(key)
+        let key = frameKey(frame)
+        if seenFrameKeys.contains(key) {
+            noteDuplicate()
+            return false
+        }
 
         if let sessionId {
             guard frame.sessionId == sessionId else { return false }
@@ -189,10 +200,21 @@ final class SessionDecoder: ObservableObject {
         case .beacon:
             if let info = BeaconInfo.decode(from: frame.payload) {
                 beacon = info
+                seenFrameKeys.insert(key)
+                // Eager LT from beacon so early data symbols aren't lost.
+                if ltDecoder == nil, info.blockCount > 0, info.blockSize > 0 {
+                    ltDecoder = LtDecoder(
+                        k: info.blockCount,
+                        blockSize: info.blockSize,
+                        originalLen: info.originalLen
+                    )
+                    flushPreManifestBuffer()
+                }
             }
         case .manifest:
             if let info = ManifestInfo.decode(from: frame.payload) {
                 manifest = info
+                seenFrameKeys.insert(key)
                 if ltDecoder == nil {
                     ltDecoder = LtDecoder(
                         k: info.blockCount,
@@ -200,11 +222,18 @@ final class SessionDecoder: ObservableObject {
                         originalLen: info.encodedByteLength
                     )
                 }
+                flushPreManifestBuffer()
             }
         case .data:
-            guard let ltDecoder else { return false }
+            guard let ltDecoder else {
+                // Buffer until beacon/manifest arrives — do NOT mark seen yet.
+                if preManifestBuffer.count < maxPreManifestBuffer {
+                    preManifestBuffer.append(frame)
+                }
+                return false
+            }
             guard let payload = try? DataPayload.decode(frame.payload) else { return false }
-            _ = ltDecoder.ingest(
+            let accepted = ltDecoder.ingest(
                 LTSymbol(
                     id: frame.symbolId,
                     degree: payload.degree,
@@ -212,10 +241,106 @@ final class SessionDecoder: ObservableObject {
                     payload: payload.symbolBytes
                 )
             )
+            seenFrameKeys.insert(key)
+            if accepted {
+                noteUseful()
+            } else {
+                noteDuplicate()
+            }
         case .endLoop:
-            break
+            seenFrameKeys.insert(key)
         }
         return ltDecoder?.isComplete == true
+    }
+
+    private func flushPreManifestBuffer() {
+        guard let ltDecoder else { return }
+        let buffered = preManifestBuffer
+        preManifestBuffer.removeAll()
+        for frame in buffered {
+            let key = frameKey(frame)
+            if seenFrameKeys.contains(key) { continue }
+            guard let payload = try? DataPayload.decode(frame.payload) else { continue }
+            let accepted = ltDecoder.ingest(
+                LTSymbol(
+                    id: frame.symbolId,
+                    degree: payload.degree,
+                    neighbors: payload.neighbors,
+                    payload: payload.symbolBytes
+                )
+            )
+            seenFrameKeys.insert(key)
+            if accepted { noteUseful() } else { noteDuplicate() }
+        }
+    }
+
+    private func noteUseful() {
+        usefulInWindow += 1
+        updateRatesIfNeeded()
+    }
+
+    private func noteDuplicate() {
+        duplicatesInWindow += 1
+        updateRatesIfNeeded()
+    }
+
+    private func updateRatesIfNeeded() {
+        let now = CFAbsoluteTimeGetCurrent()
+        let elapsed = now - windowStart
+        guard elapsed >= 1.0 else { return }
+        let total = usefulInWindow + duplicatesInWindow
+        let ups = Double(usefulInWindow) / elapsed
+        let dup = total > 0 ? Double(duplicatesInWindow) / Double(total) : 0
+        usefulInWindow = 0
+        duplicatesInWindow = 0
+        windowStart = now
+        DispatchQueue.main.async { [weak self] in
+            self?.uniqueSymbolsPerSec = ups
+            self?.duplicateRate = dup
+        }
+    }
+
+    private func schedulePublish() {
+        let now = CFAbsoluteTimeGetCurrent()
+        // Throttle UI updates to ~10 Hz.
+        if now - lastPublishTime >= 0.1 {
+            lastPublishTime = now
+            pendingPublish = false
+            let snap = snapshotOnQueue()
+            DispatchQueue.main.async { [weak self] in
+                self?.publish(
+                    stage: snap.stage,
+                    progress: snap.progress,
+                    symbols: snap.symbols,
+                    resolved: snap.resolved,
+                    blocks: snap.blocks,
+                    shortCode: snap.shortCode,
+                    title: snap.title,
+                    error: snap.error
+                )
+            }
+        } else if !pendingPublish {
+            pendingPublish = true
+            let delay = 0.1 - (now - lastPublishTime)
+            ingestQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.pendingPublish else { return }
+                self.pendingPublish = false
+                self.lastPublishTime = CFAbsoluteTimeGetCurrent()
+                let snap = self.snapshotOnQueue()
+                DispatchQueue.main.async {
+                    self.publish(
+                        stage: snap.stage,
+                        progress: snap.progress,
+                        symbols: snap.symbols,
+                        resolved: snap.resolved,
+                        blocks: snap.blocks,
+                        shortCode: snap.shortCode,
+                        title: snap.title,
+                        error: snap.error
+                    )
+                }
+            }
+        }
     }
 
     private func snapshotOnQueue() -> Snap {
@@ -265,37 +390,39 @@ final class SessionDecoder: ObservableObject {
         if Thread.isMainThread { apply() } else { DispatchQueue.main.sync(execute: apply) }
     }
 
-    func tryFinalize() -> SessionDecodeResult? {
-        var localDecoder: LtDecoder?
-        var localManifest: ManifestInfo?
-        var localBeacon: BeaconInfo?
-        var localShort: String?
-        ingestQueue.sync {
-            localDecoder = ltDecoder
-            localManifest = manifest
-            localBeacon = beacon
-            localShort = sessionId.map { LBOPFrame.sessionShortCode(sessionId: $0) } ?? shortCode
-        }
-        guard let ltDecoder = localDecoder, ltDecoder.isComplete else { return nil }
+    /// Must be called on `ingestQueue`. Sets `completedResult` synchronously so sync callers can read it.
+    private func startFinalizeOnQueue() {
+        guard !finalizeStarted else { return }
+        guard let ltDecoder, ltDecoder.isComplete else { return }
+        finalizeStarted = true
+
+        let localDecoder = ltDecoder
+        let localManifest = manifest
+        let localBeacon = beacon
+        let localShort = sessionId.map { LBOPFrame.sessionShortCode(sessionId: $0) } ?? shortCode
 
         do {
-            stage = .reconstructing
-            let encoded = try ltDecoder.reconstruct()
-            stage = .verifying
+            DispatchQueue.main.async { [weak self] in self?.stage = .reconstructing }
+            let encoded = try localDecoder.reconstruct()
+            DispatchQueue.main.async { [weak self] in self?.stage = .verifying }
             let expectedHash = localManifest?.payloadHash ?? localBeacon?.payloadHash
             let actualHash = PayloadProcessor.sha256Hex(encoded)
             if let expectedHash, actualHash.lowercased() != expectedHash.lowercased() {
-                lastError = NSLocalizedString("error.hashMismatch", comment: "")
-                stage = .failed
-                return nil
+                DispatchQueue.main.async { [weak self] in
+                    self?.lastError = NSLocalizedString("error.hashMismatch", comment: "")
+                    self?.stage = .failed
+                }
+                return
             }
             let compression = localManifest?.compression ?? "none"
             let payload = try PayloadProcessor.decompressIfNeeded(encoded, compression: compression)
             let originalExpected = localManifest?.originalByteLength ?? localBeacon?.originalLen ?? payload.count
             if payload.count < originalExpected {
-                lastError = "Recovered file is truncated (\(payload.count)/\(originalExpected) bytes)"
-                stage = .failed
-                return nil
+                DispatchQueue.main.async { [weak self] in
+                    self?.lastError = "Recovered file is truncated (\(payload.count)/\(originalExpected) bytes)"
+                    self?.stage = .failed
+                }
+                return
             }
             let finalData = payload.count > originalExpected ? Data(payload.prefix(originalExpected)) : payload
             let rawName = localManifest?.filename ?? "file.bin"
@@ -310,9 +437,11 @@ final class SessionDecoder: ObservableObject {
                 unsignedManifest: localManifest?.unsignedFields ?? [:]
             )
             if trust == .verificationFailed {
-                lastError = NSLocalizedString("error.signatureFailed", comment: "")
-                stage = .failed
-                return nil
+                DispatchQueue.main.async { [weak self] in
+                    self?.lastError = NSLocalizedString("error.signatureFailed", comment: "")
+                    self?.stage = .failed
+                }
+                return
             }
             let result = SessionDecodeResult(
                 filename: filename,
@@ -324,14 +453,38 @@ final class SessionDecoder: ObservableObject {
                 shortCode: localShort,
                 trustState: trust
             )
-            stage = .complete
-            progress = 1
-            return result
+            let applyComplete = {
+                self.stage = .complete
+                self.progress = 1
+                self.completedResult = result
+            }
+            if Thread.isMainThread {
+                applyComplete()
+            } else {
+                DispatchQueue.main.sync(execute: applyComplete)
+            }
         } catch {
-            lastError = error.localizedDescription
-            stage = .failed
-            return nil
+            let msg = error.localizedDescription
+            let applyFail = {
+                self.lastError = msg
+                self.stage = .failed
+            }
+            if Thread.isMainThread {
+                applyFail()
+            } else {
+                DispatchQueue.main.async(execute: applyFail)
+            }
         }
+    }
+
+    /// Sync finalize for video decode / unit tests. Live camera uses published `completedResult`.
+    func tryFinalize() -> SessionDecodeResult? {
+        if let completedResult { return completedResult }
+        ingestQueue.sync {
+            guard let lt = ltDecoder, lt.isComplete else { return }
+            startFinalizeOnQueue()
+        }
+        return completedResult
     }
 }
 

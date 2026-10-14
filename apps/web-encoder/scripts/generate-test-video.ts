@@ -37,6 +37,7 @@ async function main() {
     language: "en",
     compress: false,
     profile: "satellite_safe",
+    allowDemoSeed: true,
   });
 
   writeFileSync(resolve(outDir, "manifest.json"), session.info.manifestJson);

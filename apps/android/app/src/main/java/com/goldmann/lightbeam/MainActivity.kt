@@ -52,9 +52,12 @@ class MainActivity : ComponentActivity() {
                         })
                     }
                     composable(Screen.Scanner.route) {
+                        val frameStats by viewModel.frameStats.collectAsState()
                         ScannerScreen(
                             snapshot = snapshot,
-                            onQr = { viewModel.onQrPayload(it) },
+                            frameStats = frameStats,
+                            onQr = { viewModel.onQrPayloadAsync(it) },
+                            onFrameStats = viewModel::onFrameStats,
                             onReset = viewModel::resetSession,
                             onComplete = { navController.navigate(Screen.Completion.route) },
                             onBack = { navController.popBackStack() },

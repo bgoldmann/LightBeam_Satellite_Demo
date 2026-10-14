@@ -104,8 +104,10 @@ export default function App() {
   const [publishCatalog, setPublishCatalog] = useState(false);
   const [loopUi, setLoopUi] = useState({ index: 0, pct: 0 });
   const [playoutStatus, setPlayoutStatus] = useState<PlayoutStatus | null>(null);
+  const [broadcastFullscreen, setBroadcastFullscreen] = useState(false);
   const previewTimer = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fullscreenCanvasRef = useRef<HTMLCanvasElement>(null);
   const playoutRef = useRef<LoopingQrPlayout | null>(null);
 
   const fileMeta = useMemo(() => {
@@ -141,6 +143,7 @@ export default function App() {
         description: description || undefined,
         compress,
         profile,
+        allowDemoSeed: true,
       });
       setSession(s);
       setInfo(s.info);
@@ -161,15 +164,69 @@ export default function App() {
     playoutRef.current = null;
   }, []);
 
-  const drawFrame = useCallback((loopIndex: number, loopPct: number) => {
+  const sizeCanvasToDisplay = useCallback((canvas: HTMLCanvasElement) => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cssW = canvas.clientWidth || window.innerWidth;
+    const cssH = canvas.clientHeight || window.innerHeight;
+    const w = Math.max(640, Math.floor(cssW * dpr));
+    const h = Math.max(360, Math.floor(cssH * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }, []);
+
+  const drawFrame = useCallback((
+    loopIndex: number,
+    loopPct: number,
+    prepared?: Parameters<EncodeSession["paintPreparedTick"]>[1],
+  ) => {
     setLoopUi({ index: loopIndex, pct: loopPct });
-    const canvas = canvasRef.current;
     const sess = session;
-    if (!canvas || !sess) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    sess.paintBroadcastTick(ctx, loopPct / 100, { looping: false });
-  }, [session]);
+    if (!sess) return;
+    const targets = [canvasRef.current, fullscreenCanvasRef.current].filter(
+      (c): c is HTMLCanvasElement => !!c,
+    );
+    for (const canvas of targets) {
+      if (broadcastFullscreen && canvas === fullscreenCanvasRef.current) {
+        sizeCanvasToDisplay(canvas);
+      }
+      const ctx = canvas.getContext("2d");
+      if (!ctx) continue;
+      ctx.imageSmoothingEnabled = false;
+      if (prepared && prepared.length > 0) {
+        sess.paintPreparedTick(ctx, prepared, loopPct / 100);
+      } else {
+        sess.paintBroadcastTick(ctx, loopPct / 100, { looping: false });
+      }
+    }
+  }, [session, broadcastFullscreen, sizeCanvasToDisplay]);
+
+  const enterBroadcastMode = useCallback(async () => {
+    setBroadcastFullscreen(true);
+    try {
+      await document.documentElement.requestFullscreen?.();
+    } catch {
+      /* CSS fullscreen still works */
+    }
+  }, []);
+
+  const exitBroadcastMode = useCallback(async () => {
+    setBroadcastFullscreen(false);
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFs = () => {
+      if (!document.fullscreenElement) setBroadcastFullscreen(false);
+    };
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
 
   const startPreview = useCallback(async () => {
     if (!session) return;
@@ -212,6 +269,7 @@ export default function App() {
           description: description || undefined,
           compress,
           profile,
+          allowDemoSeed: true,
         });
         const { blob, mime, frameCount, note } = await exportBroadcastVideo(
           fresh,
@@ -469,6 +527,9 @@ export default function App() {
               <button type="button" className="ghost" onClick={stopPreview}>
                 {t.stopPreview}
               </button>
+              <button type="button" onClick={() => void enterBroadcastMode()}>
+                Fullscreen broadcast
+              </button>
               <button
                 type="button"
                 disabled={busy || playoutStatus?.phase === "preparing"}
@@ -484,6 +545,13 @@ export default function App() {
               </button>
             </div>
           </section>
+        )}
+
+        {broadcastFullscreen && (
+          <div className="broadcast-overlay" onDoubleClick={() => void exitBroadcastMode()}>
+            <canvas ref={fullscreenCanvasRef} className="broadcast-fullscreen-canvas" />
+            <p className="broadcast-overlay-hint">Double-click or Esc to exit · fill camera with every QR</p>
+          </div>
         )}
 
         {step === "export" && (

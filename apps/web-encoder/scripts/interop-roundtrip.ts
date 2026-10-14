@@ -83,6 +83,7 @@ async function testEncodeDecode(compress: boolean) {
     language: "en",
     compress,
     profile: "lab",
+    allowDemoSeed: true,
   });
   const dec = new BrowserDecodeSession();
   let frames = 0;

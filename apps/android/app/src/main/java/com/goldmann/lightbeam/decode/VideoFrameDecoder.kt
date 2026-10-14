@@ -31,7 +31,7 @@ class VideoFrameDecoder(private val context: Context) {
         BarcodeReader.Options(
             formats = setOf(BarcodeReader.Format.QR_CODE),
             tryHarder = true,
-            tryInvert = true,
+            tryInvert = false,
             maxNumberOfSymbols = 8,
         ),
     )

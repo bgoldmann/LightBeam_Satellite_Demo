@@ -1,13 +1,8 @@
 package com.goldmann.lightbeam.protocol
 
 import kotlin.math.ceil
-import kotlin.math.ln
-import kotlin.math.sqrt
 
 const val DEFAULT_BLOCK_SIZE = 512
-
-private const val RS_C = 0.1
-private const val RS_DELTA = 0.05
 
 data class LtSymbol(
     val id: Int,
@@ -33,65 +28,7 @@ data class LtSymbol(
     }
 }
 
-private class SeededRng(seed: Long) {
-    private var state: Long = if (seed == 0L) -7046029254386353131L else seed
-
-    fun nextU64(): Long {
-        var x = state
-        x = x xor (x shl 13)
-        x = x xor (x ushr 7)
-        x = x xor (x shl 17)
-        state = x and 0xFFFFFFFFFFFFFFFL
-        return state
-    }
-
-    fun nextFloat(): Double = (nextU64() and 0xFFFFFFL).toDouble() / 16777216.0
-
-    fun nextRange(max: Int): Int = (nextU64() % max.toLong()).toInt()
-}
-
-private fun idealSoliton(k: Int, d: Int): Double {
-    if (d == 0 || d > k) return 0.0
-    if (d == 1) return 1.0 / k
-    return 1.0 / (d.toDouble() * (d - 1))
-}
-
-private fun robustSolitonTau(k: Int, d: Int): Double {
-    val s = RS_C * ln(k.toDouble()) * sqrt(k.toDouble()) / RS_DELTA
-    val r = ceil(s / k).toInt()
-    if (r == 0) return 0.0
-    return when {
-        d in 1 until r -> s / (d * k)
-        d == r -> s * ln(s / RS_DELTA) / k
-        else -> 0.0
-    }
-}
-
-private fun robustSolitonCdf(k: Int): DoubleArray {
-    val masses = DoubleArray(k + 1)
-    var sum = 0.0
-    for (d in 1..k) {
-        masses[d] = idealSoliton(k, d) + robustSolitonTau(k, d)
-        sum += masses[d]
-    }
-    val cdf = DoubleArray(k + 1)
-    var acc = 0.0
-    for (d in 1..k) {
-        acc += masses[d] / sum
-        cdf[d] = acc
-    }
-    cdf[k] = 1.0
-    return cdf
-}
-
-private fun sampleDegree(cdf: DoubleArray, u: Double): Int {
-    for (d in 1 until cdf.size) {
-        if (u <= cdf[d]) return d
-    }
-    return cdf.size - 1
-}
-
-/** Hash-mixed neighbor selection (fallback when wire omits neighbors). */
+/** Hash-mixed neighbor selection (fallback when wire omits neighbors). Matches web/iOS. */
 fun neighborsFromSeed(seed: Int, k: Int, degree: Int): IntArray {
     fun mix32(a: Int, b: Int): Int {
         var h = (a xor b) * -0x7a143595 // 0x85ebca6b
@@ -104,8 +41,10 @@ fun neighborsFromSeed(seed: Int, k: Int, degree: Int): IntArray {
     val chosen = linkedSetOf<Int>()
     var attempt = 0
     while (chosen.size < want && attempt < k * 32) {
+        // Match web/iOS: unsigned modulo without ushr 1.
         val h = mix32(seed xor ((attempt + 1) * -0x61c88647), k) // 0x9e3779b9
-        chosen.add(((h ushr 1) % k + k) % k)
+        val idx = ((h.toLong() and 0xFFFFFFFFL) % k.toLong()).toInt()
+        chosen.add(idx)
         attempt++
     }
     var i = 0
@@ -115,6 +54,9 @@ fun neighborsFromSeed(seed: Int, k: Int, degree: Int): IntArray {
     return chosen.sorted().toIntArray()
 }
 
+/**
+ * O(edges) queue-based LT peel decoder.
+ */
 class LtDecoder(
     val k: Int,
     val blockSize: Int,
@@ -122,17 +64,21 @@ class LtDecoder(
 ) {
     private val blocks: Array<ByteArray?> = arrayOfNulls(k)
     private val pending = mutableListOf<PendingSymbol>()
+    private val blockToPending: Array<MutableList<Int>> = Array(k) { mutableListOf() }
+    private val peelQueue = ArrayDeque<Int>()
     private val seenIds = mutableSetOf<Int>()
+    var resolvedCount: Int = 0
+        private set
 
     private data class PendingSymbol(
-        val neighbors: MutableList<Int>,
+        var neighbors: MutableList<Int>,
         val payload: ByteArray,
+        var alive: Boolean = true,
     )
 
     val usefulCount: Int get() = seenIds.size
-    val resolvedCount: Int get() = blocks.count { it != null }
     val isComplete: Boolean get() = resolvedCount == k
-    val estimatedNeed: Int get() = ceil(k * 1.15).toInt()
+    val estimatedNeed: Int get() = ceil(k * 1.25).toInt()
 
     fun ingest(symbol: LtSymbol): IngestResult {
         if (!seenIds.add(symbol.id)) return IngestResult.Duplicate
@@ -144,41 +90,65 @@ class LtDecoder(
         if (neigh.isEmpty() || symbol.payload.size != blockSize) {
             return IngestResult.SeenUseless
         }
-        pending.add(PendingSymbol(neigh, symbol.payload.copyOf()))
+
+        val remaining = mutableListOf<Int>()
+        val payload = symbol.payload.copyOf()
+        for (idx in neigh) {
+            if (idx !in 0 until k) continue
+            val known = blocks[idx]
+            if (known != null) xorInPlace(payload, known)
+            else remaining.add(idx)
+        }
+        if (remaining.isEmpty()) return IngestResult.Accepted
+
+        val pendingIdx = pending.size
+        pending.add(PendingSymbol(remaining, payload))
+        for (idx in remaining) blockToPending[idx].add(pendingIdx)
+        if (remaining.size == 1) peelQueue.addLast(pendingIdx)
         peel()
         return IngestResult.Accepted
     }
 
     private fun peel() {
-        var progressed = true
-        while (progressed) {
-            progressed = false
-            var i = 0
-            while (i < pending.size) {
-                val item = pending[i]
-                var j = 0
-                while (j < item.neighbors.size) {
-                    val idx = item.neighbors[j]
-                    val known = blocks[idx]
-                    if (known != null) {
-                        xorInPlace(item.payload, known)
-                        item.neighbors.removeAt(j)
-                    } else {
-                        j++
-                    }
-                }
-                when {
-                    item.neighbors.size == 1 -> {
-                        val idx = item.neighbors[0]
-                        if (blocks[idx] == null) {
-                            blocks[idx] = item.payload.copyOf()
-                            progressed = true
+        while (peelQueue.isNotEmpty()) {
+            val pendingIdx = peelQueue.removeLast()
+            if (pendingIdx >= pending.size) continue
+            val item = pending[pendingIdx]
+            if (!item.alive) continue
+
+            val remaining = mutableListOf<Int>()
+            for (idx in item.neighbors) {
+                val known = blocks[idx]
+                if (known != null) xorInPlace(item.payload, known)
+                else remaining.add(idx)
+            }
+            item.neighbors = remaining
+
+            when {
+                remaining.size == 1 -> {
+                    val blockIdx = remaining[0]
+                    if (blocks[blockIdx] == null) {
+                        blocks[blockIdx] = item.payload.copyOf()
+                        resolvedCount++
+                        item.alive = false
+                        for (otherIdx in blockToPending[blockIdx]) {
+                            if (otherIdx == pendingIdx || otherIdx >= pending.size) continue
+                            val other = pending[otherIdx]
+                            if (!other.alive) continue
+                            val pos = other.neighbors.indexOf(blockIdx)
+                            if (pos < 0) continue
+                            xorInPlace(other.payload, item.payload)
+                            other.neighbors.removeAt(pos)
+                            when {
+                                other.neighbors.size == 1 -> peelQueue.addLast(otherIdx)
+                                other.neighbors.isEmpty() -> other.alive = false
+                            }
                         }
-                        pending.removeAt(i)
+                    } else {
+                        item.alive = false
                     }
-                    item.neighbors.isEmpty() -> pending.removeAt(i)
-                    else -> i++
                 }
+                remaining.isEmpty() -> item.alive = false
             }
         }
     }

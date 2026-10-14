@@ -42,33 +42,17 @@ struct LiveScannerView: View {
             scanner.onQRDetected = { qr in
                 decoder.ingestQRPayload(qr)
             }
-            // Poll completion — ingest is async off-main
             scanner.start()
         }
         .onChange(of: decoder.symbolsReceived) { symbols in
             if symbols > lbopHits { lbopHits = symbols }
         }
-        .onChange(of: decoder.stage) { stage in
-            guard stage == .complete || stage == .reconstructing || stage == .verifying else { return }
-            if showCompletion { return }
-            if let result = decoder.tryFinalize() {
-                completedResult = result
-                showCompletion = true
-                scanner.stop()
-                KeepAwake.setEnabled(false)
-            }
-        }
-        .onChange(of: decoder.blocksResolved) { _ in
-            guard decoder.blockCount > 0,
-                  decoder.blocksResolved >= decoder.blockCount,
-                  !showCompletion
-            else { return }
-            if let result = decoder.tryFinalize() {
-                completedResult = result
-                showCompletion = true
-                scanner.stop()
-                KeepAwake.setEnabled(false)
-            }
+        .onChange(of: decoder.completedResult) { result in
+            guard let result, !showCompletion else { return }
+            completedResult = result
+            showCompletion = true
+            scanner.stop()
+            KeepAwake.setEnabled(false)
         }
         .onDisappear {
             scanner.stop()
@@ -130,6 +114,19 @@ struct LiveScannerView: View {
             )
             .font(.caption2.monospaced())
             .foregroundStyle(scanner.qrHitCount > 0 ? Color.green : Color.white.opacity(0.7))
+
+            // Debug metrics overlay
+            Text(
+                String(
+                    format: "decode %.0fms · %d QR/frame · %.0f sym/s · dup %.0f%%",
+                    scanner.lastDecodeMs,
+                    scanner.lastQrPerFrame,
+                    decoder.uniqueSymbolsPerSec,
+                    decoder.duplicateRate * 100
+                )
+            )
+            .font(.caption2.monospaced())
+            .foregroundStyle(.cyan.opacity(0.9))
 
             if decoder.blockCount > 0 && decoder.blocksResolved > 0 && decoder.blocksResolved < decoder.blockCount {
                 Text("scanner.keepScanning")

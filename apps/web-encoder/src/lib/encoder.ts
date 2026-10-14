@@ -2,7 +2,7 @@
 import { encode as cborEncode } from "cbor-x";
 import { getPublicKeyAsync, hashes, signAsync } from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha2.js";
-import { LtEncoder, DEFAULT_BLOCK_SIZE } from "./fec";
+import { LtEncoder, DEFAULT_BLOCK_SIZE, LT_OVERHEAD_FACTOR } from "./fec";
 import {
   encodeDataPayload,
   encodeFrame,
@@ -125,7 +125,10 @@ export interface EncodeOptions {
   compress: boolean;
   password?: string;
   profile: ProfileId | string;
+  /** Explicit signing seed. Required in production; demo seed only when allowDemoSeed. */
   signingSeed?: Uint8Array;
+  /** Allow hard-coded demo seed when signingSeed is omitted (dev / demos only). */
+  allowDemoSeed?: boolean;
 }
 
 export interface SessionInfo {
@@ -158,7 +161,12 @@ export class EncodeSession {
   private encoder!: LtEncoder;
   private manifestCbor!: Uint8Array;
   private beaconJson!: Uint8Array;
-  private beaconInterval = 12;
+  /**
+   * Control pair (beacon+manifest) every N *display ticks*, using the first
+   * two tiles of that tick. With tiles=4 and interval=16 → 2/(16*4) ≈ 3%.
+   */
+  private controlEveryTicks = 16;
+  private displayTick = 0;
   profile: BroadcastProfile;
 
   private constructor(profile: BroadcastProfile) {
@@ -182,6 +190,11 @@ export class EncodeSession {
     const seed =
       opts.signingSeed ??
       (() => {
+        if (!opts.allowDemoSeed) {
+          throw new Error(
+            "signingSeed is required (or set allowDemoSeed: true for local demos only)",
+          );
+        }
         const s = new Uint8Array(32);
         new TextEncoder().encodeInto("LightBeamDemoSeed_v1", s);
         return s;
@@ -242,10 +255,13 @@ export class EncodeSession {
       short_code: sessionShortCode(sessionId),
     };
 
-    const estimatedSymbols = Math.ceil(blockCount * (1 + profile.redundancy));
+    // Use fixed LT overhead (~1.25×) rather than profile.redundancy which was
+    // calibrated against the broken degree distribution.
+    const estimatedSymbols = Math.ceil(blockCount * LT_OVERHEAD_FACTOR);
     const tiles = profile.tiles;
     const symbolsPerSec = (profile.fps / profile.holdFrames) * tiles;
-    const dataRatio = (session.beaconInterval - 2) / session.beaconInterval;
+    const controlShare = Math.min(0.1, 2 / (session.controlEveryTicks * tiles));
+    const dataRatio = 1 - controlShare;
     const estimatedRuntimeSec = Math.ceil(estimatedSymbols / (symbolsPerSec * dataRatio));
     // One broadcast loop = enough fountain symbols for recovery (+10% headroom)
     const loopFrameCount = Math.max(Math.ceil(estimatedSymbols * 1.1), blockCount + 16);
@@ -297,14 +313,28 @@ export class EncodeSession {
    * `looping: true` wraps symbol IDs (finite export video that repeats).
    * Live TV playout must use `looping: false` so phones keep getting new
    * fountain IDs and cannot stall mid-decode on duplicates.
+   *
+   * Prefer `paintBroadcastTick` for live/export — it schedules beacon+manifest
+   * as the first tiles of every Nth display tick (~3% overhead).
+   * Single-stream callers (tests) still get a sparse control pair every
+   * `controlEveryTicks` symbols when forceType is omitted.
    */
-  nextFrameBytes(opts?: { looping?: boolean }): Uint8Array {
+  nextFrameBytes(opts?: { looping?: boolean; forceType?: "beacon" | "manifest" | "data" }): Uint8Array {
     const looping = opts?.looping ?? false;
     const tick =
       looping && this.loopFrameCount > 0
         ? this.emitCount % this.loopFrameCount
         : this.emitCount;
-    if (tick % this.beaconInterval === 0) {
+    let force = opts?.forceType;
+    if (!force) {
+      // Sparse control for single-QR / test callers (~3%: 2 of every ~64).
+      const period = this.controlEveryTicks * 4;
+      if (tick % period === 0) force = "beacon";
+      else if (tick % period === 1) force = "manifest";
+      else force = "data";
+    }
+
+    if (force === "beacon") {
       const frame = encodeFrame({
         version: PROTOCOL_VERSION,
         frameType: FrameType.Beacon,
@@ -316,7 +346,7 @@ export class EncodeSession {
       this.emitCount++;
       return frame;
     }
-    if (tick % this.beaconInterval === 1) {
+    if (force === "manifest") {
       const frame = encodeFrame({
         version: PROTOCOL_VERSION,
         frameType: FrameType.Manifest,
@@ -328,6 +358,7 @@ export class EncodeSession {
       this.emitCount++;
       return frame;
     }
+
     const sym = this.encoder.symbolAt(tick);
     const payload = encodeDataPayload(sym.degree, sym.neighbors, sym.payload);
     const frame = encodeFrame({
@@ -364,18 +395,46 @@ export class EncodeSession {
   /**
    * Paint one video frame: `tiles` independent LBOP QRs (1 or 2×2).
    * Live path should call this directly — no PNG round-trip.
+   * Every `controlEveryTicks` display ticks, tile 0=beacon and tile 1=manifest
+   * (when tiles≥2); remaining tiles are fountain data.
    */
   paintBroadcastTick(
     ctx: CanvasRenderingContext2D,
     loopProgress: number,
     opts?: { looping?: boolean },
   ) {
+    const qrs = this.prepareNextTickQrs(opts);
+    this.paintBroadcastLayout(ctx, qrs, loopProgress);
+  }
+
+  /** Precompute next tick's QR matrices (for vsync playout without encode stalls). */
+  prepareNextTickQrs(opts?: { looping?: boolean }): ReturnType<typeof QRCode.create>[] {
     const tiles = this.profile.tiles;
+    const tickIndex = this.displayTick;
+    const sendControl = tickIndex % this.controlEveryTicks === 0;
+    this.displayTick++;
     const qrs: ReturnType<typeof QRCode.create>[] = [];
     for (let i = 0; i < tiles; i++) {
-      const bytes = this.nextFrameBytes(opts);
+      // Always set forceType so single-stream sparse control does not fire inside a tiled tick.
+      let forceType: "beacon" | "manifest" | "data" = "data";
+      if (sendControl && tiles >= 2) {
+        if (i === 0) forceType = "beacon";
+        else if (i === 1) forceType = "manifest";
+      } else if (sendControl && tiles === 1) {
+        const controlOrdinal = Math.floor(tickIndex / this.controlEveryTicks);
+        forceType = controlOrdinal % 2 === 0 ? "beacon" : "manifest";
+      }
+      const bytes = this.nextFrameBytes({ ...opts, forceType });
       qrs.push(createLbopQr(bytes, this.profile.qrEcc));
     }
+    return qrs;
+  }
+
+  paintPreparedTick(
+    ctx: CanvasRenderingContext2D,
+    qrs: ReturnType<typeof QRCode.create>[],
+    loopProgress: number,
+  ) {
     this.paintBroadcastLayout(ctx, qrs, loopProgress);
   }
 
@@ -384,8 +443,9 @@ export class EncodeSession {
     qrs: ReturnType<typeof QRCode.create>[],
     loopProgress: number,
   ) {
-    const W = 1920;
-    const H = 1080;
+    const W = ctx.canvas.width || 1920;
+    const H = ctx.canvas.height || 1080;
+    ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = "#0b1220";
     ctx.fillRect(0, 0, W, H);
 
@@ -446,15 +506,20 @@ function paintQrModules(
   dim: number,
 ) {
   const n = qr.modules.size;
-  const cell = dim / n;
+  // Integer pixels per module — fractional cells blur edges and kill decode rate.
+  const cell = Math.max(1, Math.floor(dim / n));
+  const drawn = cell * n;
+  const ox = Math.floor(x + (dim - drawn) / 2);
+  const oy = Math.floor(y + (dim - drawn) / 2);
+  ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#ffffff";
-  ctx.fillRect(x, y, dim, dim);
+  ctx.fillRect(ox, oy, drawn, drawn);
   ctx.fillStyle = "#000000";
   // qrcode BitMatrix.get(row, col) — swapping args transposes the symbol and tanks decode rate.
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       if (qr.modules.get(r, c)) {
-        ctx.fillRect(x + c * cell, y + r * cell, cell + 0.55, cell + 0.55);
+        ctx.fillRect(ox + c * cell, oy + r * cell, cell, cell);
       }
     }
   }
@@ -466,7 +531,12 @@ export function lbopQrSegments(bytes: Uint8Array) {
 }
 
 function createLbopQr(bytes: Uint8Array, ecc: BroadcastProfile["qrEcc"]) {
-  return QRCode.create(lbopQrSegments(bytes), { errorCorrectionLevel: ecc });
+  return QRCode.create(lbopQrSegments(bytes), {
+    errorCorrectionLevel: ecc,
+    // Fixed mask — avoids per-frame mask evaluation cost on encode path.
+    maskPattern: 0,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
 }
 
 export function verificationReport(info: SessionInfo): string {

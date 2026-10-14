@@ -1,27 +1,33 @@
 import Foundation
 
-/// Luby Transform fountain peel decoder — mirrors web-encoder fec.ts.
+/// Luby Transform fountain peel decoder — O(edges) queue-based peeling.
 final class LtDecoder {
     let k: Int
     let blockSize: Int
     let originalLen: Int
 
     private var blocks: [Data?]
-    private var pending: [(neighbors: [Int], payload: Data)] = []
+    private var pending: [PendingSymbol] = []
+    private var blockToPending: [[Int]] // block index → pending indices that reference it
+    private var peelQueue: [Int] = [] // pending indices ready to peel (degree 1)
     private(set) var seenIds = Set<UInt64>()
+    private(set) var resolvedCount = 0
+
+    private struct PendingSymbol {
+        var neighbors: [Int]
+        var payload: Data
+        var alive: Bool
+    }
 
     init(k: Int, blockSize: Int, originalLen: Int) {
         self.k = k
         self.blockSize = blockSize
         self.originalLen = originalLen
         self.blocks = Array(repeating: nil, count: k)
+        self.blockToPending = Array(repeating: [], count: k)
     }
 
     var usefulCount: Int { seenIds.count }
-
-    var resolvedCount: Int {
-        blocks.reduce(0) { $0 + ($1 != nil ? 1 : 0) }
-    }
 
     var isComplete: Bool { resolvedCount == k }
 
@@ -39,7 +45,32 @@ final class LtDecoder {
 
         guard !neighbors.isEmpty, symbol.payload.count == blockSize else { return true }
 
-        pending.append((neighbors: neighbors, payload: Data(symbol.payload)))
+        // Reduce against already-known blocks immediately.
+        var remaining: [Int] = []
+        remaining.reserveCapacity(neighbors.count)
+        var payload = Data(symbol.payload)
+        for idx in neighbors {
+            guard idx >= 0, idx < k else { continue }
+            if let known = blocks[idx] {
+                xorInPlace(&payload, known)
+            } else {
+                remaining.append(idx)
+            }
+        }
+
+        if remaining.isEmpty {
+            return true
+        }
+
+        let pendingIdx = pending.count
+        pending.append(PendingSymbol(neighbors: remaining, payload: payload, alive: true))
+        for idx in remaining {
+            blockToPending[idx].append(pendingIdx)
+        }
+
+        if remaining.count == 1 {
+            peelQueue.append(pendingIdx)
+        }
         peel()
         return true
     }
@@ -55,36 +86,57 @@ final class LtDecoder {
     }
 
     private func peel() {
-        var progressed = true
-        while progressed {
-            progressed = false
-            var i = 0
-            while i < pending.count {
-                var item = pending[i]
-                var j = 0
-                while j < item.neighbors.count {
-                    let idx = item.neighbors[j]
-                    if let known = blocks[idx] {
-                        xorInPlace(&item.payload, known)
-                        item.neighbors.remove(at: j)
-                    } else {
-                        j += 1
-                    }
-                }
+        while !peelQueue.isEmpty {
+            let pendingIdx = peelQueue.removeLast()
+            guard pendingIdx < pending.count else { continue }
+            var item = pending[pendingIdx]
+            guard item.alive else { continue }
 
-                if item.neighbors.count == 1 {
-                    let idx = item.neighbors[0]
-                    if blocks[idx] == nil {
-                        blocks[idx] = item.payload
-                        progressed = true
-                    }
-                    pending.remove(at: i)
-                } else if item.neighbors.isEmpty {
-                    pending.remove(at: i)
-                } else {
-                    pending[i] = item
-                    i += 1
+            // Re-reduce in case new blocks arrived while queued.
+            var remaining: [Int] = []
+            for idx in item.neighbors {
+                if blocks[idx] == nil {
+                    remaining.append(idx)
+                } else if let known = blocks[idx] {
+                    xorInPlace(&item.payload, known)
                 }
+            }
+            item.neighbors = remaining
+
+            if remaining.count == 1 {
+                let blockIdx = remaining[0]
+                if blocks[blockIdx] == nil {
+                    blocks[blockIdx] = item.payload
+                    resolvedCount += 1
+                    item.alive = false
+                    pending[pendingIdx] = item
+
+                    // Propagate to other pending symbols that reference this block.
+                    for otherIdx in blockToPending[blockIdx] {
+                        guard otherIdx != pendingIdx, otherIdx < pending.count else { continue }
+                        var other = pending[otherIdx]
+                        guard other.alive else { continue }
+                        if let pos = other.neighbors.firstIndex(of: blockIdx) {
+                            xorInPlace(&other.payload, item.payload)
+                            other.neighbors.remove(at: pos)
+                            pending[otherIdx] = other
+                            if other.neighbors.count == 1 {
+                                peelQueue.append(otherIdx)
+                            } else if other.neighbors.isEmpty {
+                                other.alive = false
+                                pending[otherIdx] = other
+                            }
+                        }
+                    }
+                } else {
+                    item.alive = false
+                    pending[pendingIdx] = item
+                }
+            } else if remaining.isEmpty {
+                item.alive = false
+                pending[pendingIdx] = item
+            } else {
+                pending[pendingIdx] = item
             }
         }
     }

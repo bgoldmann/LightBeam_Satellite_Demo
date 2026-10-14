@@ -67,16 +67,16 @@ fn ideal_soliton(k: usize, d: usize) -> f64 {
     }
 }
 
+/// Correct robust-soliton τ spike (Luby 2002):
+///   S = c · ln(k/δ) · √k
+///   R = round(k/S)
 fn robust_soliton_tau(k: usize, d: usize) -> f64 {
-    let s = RS_C * (k as f64).ln() * (k as f64).sqrt() / RS_DELTA;
-    let r = (s / k as f64).ceil() as usize;
-    if r == 0 {
-        return 0.0;
-    }
+    let s = RS_C * ((k as f64) / RS_DELTA).ln() * (k as f64).sqrt();
+    let r = ((k as f64) / s).round().max(1.0) as usize;
     if d >= 1 && d < r {
-        s as f64 / (d as f64 * k as f64)
+        s / (d as f64 * k as f64)
     } else if d == r {
-        (s as f64 * (s / RS_DELTA).ln()) / k as f64
+        (s * (s / RS_DELTA).max(1.0001).ln()) / k as f64
     } else {
         0.0
     }
