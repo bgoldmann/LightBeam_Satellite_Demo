@@ -128,6 +128,18 @@ struct LiveScannerView: View {
             .font(.caption2.monospaced())
             .foregroundStyle(.cyan.opacity(0.9))
 
+            Text(
+                String(
+                    format: "B %d · M %d · D %d · bad %d",
+                    decoder.beaconFrames,
+                    decoder.manifestFrames,
+                    decoder.dataFrames,
+                    decoder.corruptFrames
+                )
+            )
+            .font(.caption2.monospaced())
+            .foregroundStyle(.cyan.opacity(0.9))
+
             if decoder.blockCount > 0 && decoder.blocksResolved > 0 && decoder.blocksResolved < decoder.blockCount {
                 Text("scanner.keepScanning")
                     .font(.caption2)

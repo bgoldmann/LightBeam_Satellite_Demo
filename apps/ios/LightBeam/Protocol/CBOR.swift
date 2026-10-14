@@ -75,13 +75,23 @@ enum CBOR {
                 }
                 return .map(dict)
             case 6:
-                _ = try readValue()
+                // Tag: consume tag number, then read the single tagged value.
+                _ = try readUInt(info)
                 return try readValue()
             case 7:
                 switch info {
                 case 20: return .bool(false)
                 case 21: return .bool(true)
                 case 22: return .null
+                case 25:
+                    _ = try readBytes(2)
+                    return .unknown
+                case 26:
+                    _ = try readBytes(4)
+                    return .unknown
+                case 27:
+                    _ = try readBytes(8)
+                    return .unknown
                 default: return .unknown
                 }
             default:

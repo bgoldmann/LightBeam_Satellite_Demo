@@ -8,6 +8,8 @@ struct BeaconInfo: Codable, Equatable {
     let originalLen: Int
     /// Post-compression fountain payload length. Prefer this over originalLen for LT.
     let encodedLen: Int?
+    /// ACE algorithm (`none` / `zstd` / `deflate`) so finalize works without manifest.
+    let compression: String?
     let payloadHash: String
     let shortCode: String?
 
@@ -18,6 +20,7 @@ struct BeaconInfo: Codable, Equatable {
         case blockSize = "block_size"
         case originalLen = "original_len"
         case encodedLen = "encoded_len"
+        case compression
         case payloadHash = "payload_hash"
         case shortCode = "short_code"
     }

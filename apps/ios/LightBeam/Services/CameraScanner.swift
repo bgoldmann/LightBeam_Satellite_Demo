@@ -23,18 +23,20 @@ final class CameraScanner: NSObject, ObservableObject {
 
     private let sessionQueue = DispatchQueue(label: "com.goldmannllc.LightBeam.camera")
     private let decodeQueue = DispatchQueue(label: "com.goldmannllc.LightBeam.decode.camera", qos: .userInitiated)
+    private let decodeLock = DispatchSemaphore(value: 1)
     private var isConfigured = false
     private var interruptionObserver: NSObjectProtocol?
     private var videoOutput: AVCaptureVideoDataOutput?
     private var lastDecodeTime = CFAbsoluteTimeGetCurrent()
-    private var lastEmitted = Data()
-    private var lastEmitTime: CFAbsoluteTime = 0
-    private var decodeBusy = false
+    private var recentEmits: [Data: CFAbsoluteTime] = [:]
     private var device: AVCaptureDevice?
+    private var noHitSince = CFAbsoluteTimeGetCurrent()
+    private var tryHarderEnabled = false
 
     private lazy var zxingReader: ZXIBarcodeReader = {
         let opts = ZXIReaderOptions()
-        opts.tryHarder = true
+        // tryHarder on 1080p/60fps causes jetsam (code 9). Start light; escalate if cold.
+        opts.tryHarder = false
         opts.tryRotate = false
         opts.tryInvert = false
         opts.tryDownscale = true
@@ -111,12 +113,13 @@ final class CameraScanner: NSObject, ObservableObject {
     private func configureIfNeeded() {
         guard !isConfigured else { return }
         session.beginConfiguration()
-        if session.canSetSessionPreset(.hd1920x1080) {
-            session.sessionPreset = .hd1920x1080
-        } else if session.canSetSessionPreset(.hd1280x720) {
+        // 720p is enough for Lab 4-tile and avoids jetsam from zxing on 1080p buffers.
+        if session.canSetSessionPreset(.hd1280x720) {
             session.sessionPreset = .hd1280x720
-        } else {
+        } else if session.canSetSessionPreset(.high) {
             session.sessionPreset = .high
+        } else {
+            session.sessionPreset = .medium
         }
 
         guard
@@ -150,28 +153,33 @@ final class CameraScanner: NSObject, ObservableObject {
         isConfigured = true
     }
 
-    /// Prefer 60 fps and short exposure so consecutive QR ticks do not blend.
+    /// Prefer sharp screen capture without underexposing denser manifest/data QRs.
     private func configureDeviceForScreenCapture(_ device: AVCaptureDevice) {
         try? device.lockForConfiguration()
         defer { device.unlockForConfiguration() }
 
-        // Prefer a format that supports ≥60 fps at ~1080p.
+        // Prefer ~720p @ 30 fps — enough for Lab, far less memory pressure than 1080p60.
         var best: AVCaptureDevice.Format?
-        var bestFps: Double = 0
+        var bestScore: Double = -1
         for format in device.formats {
             let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             guard dims.width >= 1280, dims.height >= 720 else { continue }
+            guard dims.width <= 1920, dims.height <= 1080 else { continue }
             for range in format.videoSupportedFrameRateRanges {
-                if range.maxFrameRate >= 59.0, range.maxFrameRate > bestFps {
+                let fps = min(30.0, range.maxFrameRate)
+                guard fps >= 24 else { continue }
+                // Prefer closer to 1280×720.
+                let resoPenalty = abs(Double(dims.width) - 1280) + abs(Double(dims.height) - 720)
+                let score = fps * 10 - resoPenalty / 100
+                if score > bestScore {
                     best = format
-                    bestFps = range.maxFrameRate
+                    bestScore = score
                 }
             }
         }
         if let best {
             device.activeFormat = best
-            let fps = min(60.0, bestFps)
-            let duration = CMTime(value: 1, timescale: CMTimeScale(fps))
+            let duration = CMTime(value: 1, timescale: 30)
             device.activeVideoMinFrameDuration = duration
             device.activeVideoMaxFrameDuration = duration
         }
@@ -182,39 +190,28 @@ final class CameraScanner: NSObject, ObservableObject {
         if device.isAutoFocusRangeRestrictionSupported {
             device.autoFocusRangeRestriction = .near
         }
+        // Continuous AE — custom 1/250 underexposes TV screens and only the small beacon survives.
         if device.isExposureModeSupported(.continuousAutoExposure) {
             device.exposureMode = .continuousAutoExposure
-        }
-        // Cap exposure duration so one camera frame doesn't smear two QR ticks.
-        if device.isExposureModeSupported(.custom) {
-            let maxDuration = CMTime(value: 1, timescale: 250)
-            let minDuration = device.activeFormat.minExposureDuration
-            let duration = CMTimeCompare(maxDuration, minDuration) > 0 ? maxDuration : minDuration
-            let iso = min(max(device.iso, device.activeFormat.minISO), device.activeFormat.maxISO)
-            device.setExposureModeCustom(duration: duration, iso: iso, completionHandler: nil)
-        } else if device.isExposureModeSupported(.continuousAutoExposure) {
-            // Bias toward shorter exposure when custom mode is unavailable.
-            device.setExposureTargetBias(-1.0, completionHandler: nil)
+            device.setExposureTargetBias(-0.35, completionHandler: nil)
         }
         if device.isLowLightBoostSupported {
             device.automaticallyEnablesLowLightBoostWhenAvailable = false
         }
-        // No default zoom — Lab shows four QRs that must all fit in frame.
-    }
-
-    private func emitQR(_ raw: String) {
-        emitQRPayload(Data(raw.utf8))
     }
 
     private func emitQRPayload(_ raw: Data) {
         guard !raw.isEmpty else { return }
 
         let now = CFAbsoluteTimeGetCurrent()
-        if raw == lastEmitted && (now - lastEmitTime) < 0.025 {
+        // Per-payload dedupe so a 4-tile frame can emit four different codes.
+        if let last = recentEmits[raw], (now - last) < 0.04 {
             return
         }
-        lastEmitted = raw
-        lastEmitTime = now
+        if recentEmits.count > 64 {
+            recentEmits = recentEmits.filter { now - $0.value < 0.5 }
+        }
+        recentEmits[raw] = now
 
         let length = raw.count
         DispatchQueue.main.async { [weak self] in
@@ -232,16 +229,24 @@ extension CameraScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         let now = CFAbsoluteTimeGetCurrent()
-        // ~33 fps decode budget; drop frames if the previous decode is still busy.
-        guard now - lastDecodeTime >= 0.03, !decodeBusy else { return }
+        // ~20 fps decode budget.
+        guard now - lastDecodeTime >= 0.05 else { return }
+        // Drop if previous zxing call still running — prevents queue pileup → jetsam.
+        guard decodeLock.wait(timeout: .now()) == .success else { return }
         lastDecodeTime = now
+        defer { decodeLock.signal() }
+
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-        decodeBusy = true
-        defer { decodeBusy = false }
+        // Escalate tryHarder only after a cold stretch; drop it once we have hits.
+        if now - noHitSince > 1.2, !tryHarderEnabled {
+            tryHarderEnabled = true
+            zxingReader.options.tryHarder = true
+        }
 
         let t0 = CFAbsoluteTimeGetCurrent()
-        let results = (try? zxingReader.read(pixelBuffer)) ?? []
+        // Prefer luminance-plane path (not CIImage gray allocate).
+        let results = (try? zxingReader.readCVPixelBuffer(pixelBuffer)) ?? []
         let decodeMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
 
         var count = 0
@@ -250,8 +255,16 @@ extension CameraScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
                 emitQRPayload(result.bytes)
                 count += 1
             } else if !result.text.isEmpty {
-                emitQR(result.text)
+                emitQRPayload(Data(result.text.utf8))
                 count += 1
+            }
+        }
+
+        if count > 0 {
+            noHitSince = now
+            if tryHarderEnabled {
+                tryHarderEnabled = false
+                zxingReader.options.tryHarder = false
             }
         }
 

@@ -165,7 +165,8 @@ export class EncodeSession {
    * Control pair (beacon+manifest) every N *display ticks*, using the first
    * two tiles of that tick. With tiles=4 and interval=16 → 2/(16*4) ≈ 3%.
    */
-  private controlEveryTicks = 16;
+  /** Lab 4-tile: beacon+manifest every 8 display ticks (~6% overhead, faster lock). */
+  private controlEveryTicks = 8;
   private displayTick = 0;
   profile: BroadcastProfile;
 
@@ -253,6 +254,8 @@ export class EncodeSession {
       original_len: fileBytes.length,
       /** Fountain payload length (post-compression). Receivers must use this for LT, not original_len. */
       encoded_len: payload.length,
+      /** So receivers can decompress if manifest QR is missed. */
+      compression,
       payload_hash: payloadHash,
       short_code: sessionShortCode(sessionId),
     };

@@ -339,15 +339,20 @@ class ReceiveSession {
                 statusMessage = "Payload hash mismatch"
                 return false
             }
-            var recovered = when (man?.compression) {
+            val compression = man?.compression
+                ?: bec?.compression?.takeIf { it.isNotBlank() }
+                ?: "none"
+            var recovered = when (compression) {
                 "deflate" -> inflateZlib(encodedBytes)
                 "zstd" -> {
-                    val expected = man.originalByteLength.toInt().coerceAtLeast(1)
+                    val expected = (man?.originalByteLength ?: bec?.originalLen ?: encodedBytes.size.toLong())
+                        .toInt()
+                        .coerceAtLeast(1)
                     com.github.luben.zstd.Zstd.decompress(encodedBytes, expected)
                 }
                 else -> encodedBytes
             }
-            val expectedLen = man?.originalByteLength?.toInt()
+            val expectedLen = man?.originalByteLength?.toInt() ?: bec?.originalLen?.toInt()
             if (expectedLen != null && expectedLen >= 0 && recovered.size != expectedLen) {
                 if (recovered.size > expectedLen) {
                     recovered = recovered.copyOf(expectedLen)

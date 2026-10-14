@@ -80,6 +80,7 @@ data class BeaconPayload(
     val originalLen: Long,
     /** Post-compression fountain payload length. Prefer over originalLen for LT. */
     val encodedLen: Long = 0,
+    val compression: String = "none",
     val payloadHash: String,
     val shortCode: String,
 ) {

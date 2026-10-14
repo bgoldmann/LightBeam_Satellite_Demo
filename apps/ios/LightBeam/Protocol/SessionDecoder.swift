@@ -57,6 +57,15 @@ final class SessionDecoder: ObservableObject {
     @Published private(set) var completedResult: SessionDecodeResult?
     @Published private(set) var uniqueSymbolsPerSec: Double = 0
     @Published private(set) var duplicateRate: Double = 0
+    @Published private(set) var beaconFrames = 0
+    @Published private(set) var manifestFrames = 0
+    @Published private(set) var dataFrames = 0
+    @Published private(set) var corruptFrames = 0
+
+    private var beaconCount = 0
+    private var manifestCount = 0
+    private var dataCount = 0
+    private var corruptCount = 0
 
     private var sessionId: Data?
     private var beacon: BeaconInfo?
@@ -92,6 +101,10 @@ final class SessionDecoder: ObservableObject {
             usefulInWindow = 0
             duplicatesInWindow = 0
             windowStart = CFAbsoluteTimeGetCurrent()
+            beaconCount = 0
+            manifestCount = 0
+            dataCount = 0
+            corruptCount = 0
         }
         publish(
             stage: .searching,
@@ -183,7 +196,10 @@ final class SessionDecoder: ObservableObject {
     }
 
     private func ingestPayloadOnQueue(_ data: Data) -> Bool {
-        guard let frame = LBOPFrame.decodeFromQRPayload(data) else { return false }
+        guard let frame = LBOPFrame.decodeFromQRPayload(data) else {
+            corruptCount += 1
+            return false
+        }
         return ingestFrameOnQueue(frame)
     }
 
@@ -208,6 +224,7 @@ final class SessionDecoder: ObservableObject {
         case .beacon:
             if let info = BeaconInfo.decode(from: frame.payload) {
                 beacon = info
+                beaconCount += 1
                 seenFrameKeys.insert(key)
                 // Eager LT only when beacon carries encoded_len (post-compression).
                 // Using original_len here breaks hash verify on compressed transfers.
@@ -220,10 +237,13 @@ final class SessionDecoder: ObservableObject {
                     )
                     flushPreManifestBuffer()
                 }
+            } else {
+                corruptCount += 1
             }
         case .manifest:
             if let info = ManifestInfo.decode(from: frame.payload) {
                 manifest = info
+                manifestCount += 1
                 seenFrameKeys.insert(key)
                 if ltDecoder == nil {
                     ltDecoder = LtDecoder(
@@ -236,6 +256,8 @@ final class SessionDecoder: ObservableObject {
                     ltDecoder?.setFountainPayloadLength(info.encodedByteLength)
                 }
                 flushPreManifestBuffer()
+            } else {
+                corruptCount += 1
             }
         case .data:
             guard let ltDecoder else {
@@ -245,7 +267,10 @@ final class SessionDecoder: ObservableObject {
                 }
                 return false
             }
-            guard let payload = try? DataPayload.decode(frame.payload) else { return false }
+            guard let payload = try? DataPayload.decode(frame.payload) else {
+                corruptCount += 1
+                return false
+            }
             let accepted = ltDecoder.ingest(
                 LTSymbol(
                     id: frame.symbolId,
@@ -256,6 +281,7 @@ final class SessionDecoder: ObservableObject {
             )
             seenFrameKeys.insert(key)
             if accepted {
+                dataCount += 1
                 noteUseful()
             } else {
                 noteDuplicate()
@@ -320,6 +346,12 @@ final class SessionDecoder: ObservableObject {
             lastPublishTime = now
             pendingPublish = false
             let snap = snapshotOnQueue()
+            let counts = (
+                beacon: beaconCount,
+                manifest: manifestCount,
+                data: dataCount,
+                corrupt: corruptCount
+            )
             DispatchQueue.main.async { [weak self] in
                 self?.publish(
                     stage: snap.stage,
@@ -331,6 +363,10 @@ final class SessionDecoder: ObservableObject {
                     title: snap.title,
                     error: snap.error
                 )
+                self?.beaconFrames = counts.beacon
+                self?.manifestFrames = counts.manifest
+                self?.dataFrames = counts.data
+                self?.corruptFrames = counts.corrupt
             }
         } else if !pendingPublish {
             pendingPublish = true
@@ -340,6 +376,12 @@ final class SessionDecoder: ObservableObject {
                 self.pendingPublish = false
                 self.lastPublishTime = CFAbsoluteTimeGetCurrent()
                 let snap = self.snapshotOnQueue()
+                let counts = (
+                    beacon: self.beaconCount,
+                    manifest: self.manifestCount,
+                    data: self.dataCount,
+                    corrupt: self.corruptCount
+                )
                 DispatchQueue.main.async {
                     self.publish(
                         stage: snap.stage,
@@ -351,6 +393,10 @@ final class SessionDecoder: ObservableObject {
                         title: snap.title,
                         error: snap.error
                     )
+                    self.beaconFrames = counts.beacon
+                    self.manifestFrames = counts.manifest
+                    self.dataFrames = counts.data
+                    self.corruptFrames = counts.corrupt
                 }
             }
         }
@@ -433,6 +479,10 @@ final class SessionDecoder: ObservableObject {
                 self.completedResult = nil
                 self.uniqueSymbolsPerSec = 0
                 self.duplicateRate = 0
+                self.beaconFrames = 0
+                self.manifestFrames = 0
+                self.dataFrames = 0
+                self.corruptFrames = 0
             }
             if let completed {
                 self.completedResult = completed
@@ -469,7 +519,9 @@ final class SessionDecoder: ObservableObject {
                 }
                 return
             }
-            let compression = localManifest?.compression ?? "none"
+            let compression = localManifest?.compression
+                ?? localBeacon?.compression
+                ?? "none"
             let payload = try PayloadProcessor.decompressIfNeeded(encoded, compression: compression)
             let originalExpected = localManifest?.originalByteLength ?? localBeacon?.originalLen ?? payload.count
             if payload.count < originalExpected {

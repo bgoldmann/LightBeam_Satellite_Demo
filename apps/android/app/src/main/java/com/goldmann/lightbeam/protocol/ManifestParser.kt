@@ -16,6 +16,7 @@ object ManifestParser {
             blockSize = json.optInt("block_size", DEFAULT_BLOCK_SIZE),
             originalLen = json.optLong("original_len", 0),
             encodedLen = json.optLong("encoded_len", 0),
+            compression = json.optString("compression", "none"),
             payloadHash = json.optString("payload_hash", ""),
             shortCode = json.optString("short_code", ""),
         )
