@@ -188,7 +188,9 @@ export default function App() {
       (c): c is HTMLCanvasElement => !!c,
     );
     for (const canvas of targets) {
-      if (broadcastFullscreen && canvas === fullscreenCanvasRef.current) {
+      // Size from the DOM, not React state: playout holds this callback from before
+      // fullscreen was entered, and an unsized canvas is 300×150 (QRs overlap/clip).
+      if (canvas === fullscreenCanvasRef.current) {
         sizeCanvasToDisplay(canvas);
       }
       const ctx = canvas.getContext("2d");
@@ -200,7 +202,9 @@ export default function App() {
         sess.paintBroadcastTick(ctx, loopPct / 100, { looping: false });
       }
     }
-  }, [session, broadcastFullscreen, sizeCanvasToDisplay]);
+  }, [session, sizeCanvasToDisplay]);
+  const drawFrameRef = useRef(drawFrame);
+  drawFrameRef.current = drawFrame;
 
   const enterBroadcastMode = useCallback(async () => {
     setBroadcastFullscreen(true);
@@ -234,11 +238,11 @@ export default function App() {
     setStep("preview");
     const playout = new LoopingQrPlayout(session, {
       onStatus: setPlayoutStatus,
-      onPaint: drawFrame,
+      onPaint: (...args) => drawFrameRef.current(...args),
     });
     playoutRef.current = playout;
     await playout.start();
-  }, [session, stopPreview, drawFrame]);
+  }, [session, stopPreview]);
 
   useEffect(() => () => stopPreview(), [stopPreview]);
 
@@ -549,7 +553,12 @@ export default function App() {
 
         {broadcastFullscreen && (
           <div className="broadcast-overlay" onDoubleClick={() => void exitBroadcastMode()}>
-            <canvas ref={fullscreenCanvasRef} className="broadcast-fullscreen-canvas" />
+            <canvas
+              ref={fullscreenCanvasRef}
+              width={1920}
+              height={1080}
+              className="broadcast-fullscreen-canvas"
+            />
             <p className="broadcast-overlay-hint">Double-click or Esc to exit · fill camera with every QR</p>
           </div>
         )}
